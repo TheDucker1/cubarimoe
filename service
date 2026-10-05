@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -eu
+service_repo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$service_repo/.venv/bin/python" "$service_repo/service_runner.py" "$@"

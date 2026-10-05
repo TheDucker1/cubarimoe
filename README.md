@@ -40,15 +40,15 @@ pip3 install -r requirements.txt
 python3 init.py
 ```
 
-7. Create an admin user for cubarimoe.
+7. Initialize storage/schema and create the admin account once.
 ```
-python3 manage.py createsuperuser
+./service setup
 ```
 
 ## Start the server
--  `python3 manage.py runserver` - keep this console active
+- `./service --allowed-host 10.121.15.2 --allowed-host localhost` starts the web server and worker together; replace the VPN address with your own. Keep this terminal open; Ctrl+C stops both. See the setup guide for private configuration and the systemd example.
 
-Now the site should be accessible on localhost:8000
+Now the site should be accessible on port 8010.
 
 ## Other info
 Relevant URLs (as of now): 

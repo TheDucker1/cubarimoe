@@ -1,0 +1,19 @@
+[Unit]
+Description=Cubari web and sequential chapter download worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/manga-reader/cubarimoe
+Environment=CHAPTER_CONFIG_FILE=/root/.config/cubarimoe/chapter-config.json
+ExecStart=/root/manga-reader/cubarimoe/service --allowed-host 10.121.15.2 --allowed-host localhost
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=45
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

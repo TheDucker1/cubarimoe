@@ -70,3 +70,13 @@ User requested remote names contain no content clues. New jobs now choose an ind
 Setup guide now includes a one-time, exclusive 0600 private-file generator that writes random signing/password/salt values directly to disk without printing them, plus initial 64 MiB archive / 8 MiB image / 256 MiB disk bounds. User must still fill S3 values. No private configuration or real remote data was created during this follow-up.
 
 Follow-up verification: all 43 isolated tests pass; no migration changes; diff whitespace check passes. The documented private-file generator was exercised in a temporary directory: silent generation, mode 0600, and refusal to overwrite verified.
+
+## Follow-up: private configuration and unified service
+
+The real configuration is now recommended outside the repository at `~/.config/cubarimoe/chapter-config.json`; `.gitignore` already excludes `chapter-config*.json` except the empty example. The new executable `./service` uses the existing venv and a stdlib foreground supervisor. `init-config` creates secrets privately without printing/overwriting; `setup` performs one-time validation, migrations, storage diagnostic and account creation; ordinary startup validates/applies migrations and runs one worker plus one web process in one terminal. Existing configuration must be moved/preserved instead of regenerating password/salt.
+
+Supervisor handles Ctrl+C/SIGTERM, child failure, startup failure, and bounded shutdown; both children are reaped. An exclusive launcher lock complements the worker lock. Comma-separated ALLOWED_HOSTS/repeated launcher --allowed-host support multiple explicit names. The web component remains the existing local Django runserver; no extra dependency/environment is introduced. `deploy/cubarimoe.service.example` documents running the same launcher under systemd later; no live unit was installed or service started.
+
+Lifecycle/config tests use temporary private files and benign local subprocesses, never real S3/upstream calls or the existing database. Setup guide distinguishes one-time initialization from one-command daily startup. Ordinary startup does not require live S3 connectivity for cached reading; setup and worker validate storage.
+
+Unified-service verification: all 48 isolated tests pass, including real local subprocess lifecycle tests for Ctrl+C/SIGTERM/failure cleanup and preflight/lock tests. systemd-analyze verify passes for the example unit; Bash/Python syntax, ignore rules, missing-config refusal, migration consistency, and diff checks pass. No real private configuration, live service, database migration, upstream request, or S3 operation was performed.

@@ -7,7 +7,11 @@ CANONICAL_ROOT_DOMAIN = "localhost:8000"
 
 DEBUG = False  # Never render debug tracebacks containing storage/password configuration.
 
-ALLOWED_HOSTS = [os.environ.get("ALLOWED_HOSTS", "localhost"), "kagu.algoinde.ru"]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+] + ["kagu.algoinde.ru"]
 
 
 CACHES = {
