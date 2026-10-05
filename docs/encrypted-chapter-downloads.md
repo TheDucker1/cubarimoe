@@ -53,11 +53,13 @@ Do not use individual image URLs, display titles, or expiring query strings as i
 
 Some adapters assign temporary numeric group IDs while building responses. Map those to a stable source group identifier or canonical group name before hashing; a rebuilt series response must not change a downloaded chapter's identity.
 
-Use `chapter_key` for database uniqueness, key derivation context, object naming, cache lookup, and page URLs. It is an identifier, not a secret or an authorization token.
+Use `chapter_key` for database uniqueness, key derivation context, cache lookup, and page URLs. Never use it in remote object names. It is an identifier, not a secret or an authorization token.
 
-Each successful download receives a new immutable `archive_version`. Example object key:
+Each successful download receives a new immutable `archive_version`. The remote target is an independent cryptographically random 256-bit token with no extension, source, chapter hash, or archive version. The default generic prefix is `objects`. Example object-key shape:
 
-`chapters/<chapter_key>/<archive_version>.cbz.enc`
+`objects/<64 random hex characters>`
+
+Only SQLite maps this opaque target to the chapter; preserve that database. Retries/restarts reuse the recorded random target. Configuring a descriptive prefix or bucket can reveal application context, so choose generic names.
 
 Example reader URL:
 
@@ -75,7 +77,7 @@ Assign an archive version and target object key when creating a job, and reuse t
 4. Encrypt the completed CBZ with AES-256-GCM and a fresh random 96-bit nonce for every encryption attempt.
 5. Authenticate the chapter identity, archive version, and envelope format metadata as associated data.
 
-Store a versioned envelope containing the public KDF metadata, nonce, and authenticated ciphertext. Salt and nonce are not secrets. Never reuse a nonce with a key, including retries or repeated chapter downloads; retry an upload using the same already-produced encrypted bytes rather than re-encrypting needlessly.
+New objects use a generic version-2 encryption envelope containing public algorithm/KDF metadata, nonce, and authenticated ciphertext. Chapter identity and archive version are included in associated data reconstructed from SQLite, not the visible header. The internal CBZ manifest is encrypted. The original version-1 envelope remains readable for compatibility; existing object names/headers are not rewritten automatically. Object size and transfer times are not hidden. Salt and nonce are not secrets. Never reuse a nonce with a key, including retries or repeated chapter downloads; retry an upload using the same already-produced encrypted bytes rather than re-encrypting needlessly.
 
 Preserve password, installation salt, and derivation parameters. Include enough public derivation information in the envelope for recovery; validate supported algorithms and bound KDF parameters before processing an envelope. Never store the password or derived keys in SQLite, logs, object names, or client responses.
 
@@ -252,7 +254,7 @@ Configuration is validated at startup, loaded from an owner-only JSON file selec
 | `CHAPTER_S3_ENDPOINT_URL`, `CHAPTER_S3_BUCKET` | Required HTTPS provider endpoint and unversioned private bucket |
 | `CHAPTER_S3_ACCESS_KEY_ID`, `CHAPTER_S3_SECRET_ACCESS_KEY` | Required private credentials |
 | `CHAPTER_S3_REGION`, `CHAPTER_S3_ADDRESSING_STYLE` | Required provider region and `path`/`virtual` style |
-| `CHAPTER_S3_PREFIX` | `chapters` |
+| `CHAPTER_S3_PREFIX` | `objects`; generic namespace, with opaque extensionless random object names |
 | `CHAPTER_RUNTIME_DIR` | Dedicated owner-only directory; default checkout `.chapter-data`; contains worker/cache locks, Huey and limiter SQLite files |
 | `CHAPTER_CACHE_DIR` | Default runtime `cache` subdirectory |
 | `CHAPTER_CACHE_MAX_FILES` | 20 |

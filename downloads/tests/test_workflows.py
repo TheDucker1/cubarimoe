@@ -121,6 +121,17 @@ class WorkflowTests(TestCase):
         self.assertEqual(second["result"], "already-queued")
         self.assertEqual(first["job"], second["job"])
 
+    def test_remote_name_is_random_and_unrelated_to_chapter_and_archive_version(self):
+        from downloads.services import object_key
+        job = self.queue()
+        prefix, token = job.object_key.rsplit("/", 1)
+        self.assertEqual(prefix, settings.CHAPTER_CONFIG.prefix)
+        self.assertRegex(token, r"^[0-9a-f]{64}$")
+        self.assertNotIn(self.record.chapter_key, job.object_key)
+        self.assertNotIn(str(job.archive_version), job.object_key)
+        self.assertNotIn(".", token)
+        self.assertNotEqual(object_key(), object_key())
+
     def test_restart_resets_unaccepted_job_and_overwrites_same_target(self):
         job = self.queue()
         deadline = timezone.now() + timedelta(hours=1)

@@ -8,10 +8,27 @@ Normal Django startup, including management commands, deliberately fails until r
 
 The supported deployment is one web process and one Huey consumer with exactly one thread worker. Use the existing Python 3.8 environment and install the repository requirements. The additional packages are pinned to huey 2.5.2, pyrate-limiter 2.10.0, cryptography 44.0.3, and boto3 1.37.38.
 
-Copy the empty example to a private owner-only file:
+From `/root/manga-reader/cubarimoe`, create the private configuration once. This generates the signing secret, master password, and salt directly into a 0600 file without printing them. It refuses to overwrite an existing file. The initial resource values below cap an archive at 64 MiB, an image at 8 MiB, and the disk cache at 256 MiB (also at most 20 files); adjust for chapter sizes and available memory/disk.
 
 ```bash
-install -m 600 chapter-config.example.json chapter-config.json
+.venv/bin/python - <<'PYCONFIG'
+import base64, json, os, secrets
+from pathlib import Path
+values = json.loads(Path("chapter-config.example.json").read_text())
+values.update(
+    SECRET_KEY=secrets.token_urlsafe(48),
+    CHAPTER_MASTER_PASSWORD=secrets.token_urlsafe(32),
+    CHAPTER_KDF_SALT=base64.b64encode(secrets.token_bytes(32)).decode(),
+    CHAPTER_MAX_ARCHIVE_BYTES=67108864,
+    CHAPTER_MAX_IMAGE_BYTES=8388608,
+    CHAPTER_CACHE_MAX_BYTES=268435456,
+)
+fd = os.open("chapter-config.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w") as file:
+    json.dump(values, file, indent=2)
+    file.write("\n")
+PYCONFIG
+nano chapter-config.json
 ```
 
 Fill the private file using an editor, not a command line containing credentials. Keep it out of version control; `chapter-config*.json` is ignored except for the empty example. The loader rejects symlinks, non-regular files, files owned by another user, and group/world permissions. You may keep it outside the checkout. Set only its path in the environment:
@@ -41,6 +58,8 @@ Required fields:
 Generate secrets with a password manager or a local random generator and save them directly to the private file. Never paste real values into this documentation, commit messages, issue comments, or chat output. Changing the password, salt, or KDF parameters without re-encrypting stored objects makes them unreadable. Back up these configuration values and SQLite together.
 
 Archive limits require RAM headroom: CBZ/ciphertext can coexist during encryption, and one web decryption may run while a download is being built. The disk cache stores only encrypted bytes. Its default 20-file limit also respects the configured byte budget. An object larger than the cache budget is served without being retained.
+
+Remote names use `objects/<64 random hex characters>`, without extensions or chapter identifiers. New encrypted headers also exclude chapter identity/version. SQLite holds the mapping; back up it together with the private configuration. Choose a generic bucket name and keep the prefix `objects` (or another generic prefix). Object sizes/timestamps remain visible to the storage provider. Previously created objects retain their old names/format until explicitly replaced.
 
 Optional settings use conservative defaults. `CHAPTER_RUNTIME_DIR` defaults to `.chapter-data` under the checkout; `CHAPTER_CACHE_DIR` defaults to its `cache` subdirectory. Overrides must be absolute, distinct paths in owner-only directories (0700). Keep this directory dedicated to chapter runtime data. The worker lock, Huey queue, and persistent limiter database reside under the runtime directory. Polling is every two seconds and archive decryption is limited to one request at a time per web process.
 

@@ -1,4 +1,5 @@
 import uuid
+import secrets
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -12,8 +13,9 @@ def wake_worker():
     transaction.on_commit(lambda: drain_queue())
 
 
-def object_key(chapter_key, version):
-    return "{}/{}/{}.cbz.enc".format(settings.CHAPTER_CONFIG.prefix, chapter_key, version)
+def object_key():
+    # Independent randomness, never a hash of public chapter identity or a file extension.
+    return "{}/{}".format(settings.CHAPTER_CONFIG.prefix, secrets.token_hex(32))
 
 
 @transaction.atomic
@@ -29,7 +31,7 @@ def queue_download(key):
     if job:
         return {"key": key, "result": "already-queued", "job": job.pk}
     version = uuid.uuid4()
-    job = DownloadJob.objects.create(chapter=record, archive_version=version, object_key=object_key(key, version))
+    job = DownloadJob.objects.create(chapter=record, archive_version=version, object_key=object_key())
     wake_worker()
     return {"key": key, "result": "queued", "job": job.pk}
 

@@ -62,3 +62,11 @@ Real-provider behavior, browser interaction, and live compatibility of every leg
 Read this file, the design, setup guide, and `git status` first. Implementation is complete; continue with configuration/deployment only when authorized values are available. Do not rerun live downloads as a substitute for fake tests. If changes are requested, update this log and make GPT-attributed checkpoint commits without staging private configuration/runtime data.
 
 Python 3.8 venv: `.venv`; interpreter: `../.runtime-python38`. DEBUG is false; local static serving needs `runserver --insecure`. New static assets and the download migration are explicitly tracked despite legacy ignore rules.
+
+## Follow-up: opaque remote naming
+
+User requested remote names contain no content clues. New jobs now choose an independent 256-bit random token under a generic `objects` prefix, with no extension, chapter hash, or archive version. SQLite persists the mapping/target so retry/restart/deletion behavior remains intact. New version-2 encryption headers remove chapter identity/version; those values remain authenticated using AAD reconstructed from SQLite. Version-1 decryption remains supported; existing targets are not renamed automatically. Size/timing concealment is outside this change.
+
+Setup guide now includes a one-time, exclusive 0600 private-file generator that writes random signing/password/salt values directly to disk without printing them, plus initial 64 MiB archive / 8 MiB image / 256 MiB disk bounds. User must still fill S3 values. No private configuration or real remote data was created during this follow-up.
+
+Follow-up verification: all 43 isolated tests pass; no migration changes; diff whitespace check passes. The documented private-file generator was exercised in a temporary directory: silent generation, mode 0600, and refusal to overwrite verified.

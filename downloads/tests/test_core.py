@@ -62,6 +62,19 @@ class ConfigurationTests(TestCase):
 
 
 class ArchiveEncryptionTests(TestCase):
+    def test_legacy_envelope_remains_readable(self):
+        import struct
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        key = identity("gist", "series", "1", "group")
+        version = uuid.uuid4()
+        cipher = get_cipher()
+        header = json.dumps(cipher._legacy_header(key, version), sort_keys=True, separators=(",", ":")).encode()
+        nonce = os.urandom(12)
+        legacy = b"CUBARIC1" + struct.pack(">I", len(header)) + header + nonce + AESGCM(
+            cipher._key(key)
+        ).encrypt(nonce, b"legacy-archive", header)
+        self.assertEqual(cipher.decrypt(legacy, key, version), b"legacy-archive")
+
     def test_order_and_authenticated_round_trip(self):
         key = identity("gist", "series", "1.0", "group")
         version = uuid.uuid4()
@@ -75,6 +88,8 @@ class ArchiveEncryptionTests(TestCase):
         cipher = get_cipher()
         encrypted = cipher.encrypt(plaintext, key, version)
         self.assertNotIn(PNG, encrypted)
+        self.assertNotIn(key.encode(), encrypted)
+        self.assertNotIn(str(version).encode(), encrypted)
         self.assertEqual(cipher.decrypt(encrypted, key, version), plaintext)
         self.assertEqual(extract_page(plaintext, manifest[0], 65536), PNG)
         self.assertNotEqual(cipher.encrypt(plaintext, key, version), encrypted)

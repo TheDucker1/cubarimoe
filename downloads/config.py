@@ -120,7 +120,7 @@ def load_configuration(base_dir, environ=None):
             access_key=str(values["CHAPTER_S3_ACCESS_KEY_ID"]),
             secret_key=str(values["CHAPTER_S3_SECRET_ACCESS_KEY"]),
             region=str(values["CHAPTER_S3_REGION"]),
-            prefix=str(values.get("CHAPTER_S3_PREFIX", "chapters")).strip("/"),
+            prefix=str(values.get("CHAPTER_S3_PREFIX", "objects")).strip("/"),
             addressing_style=style, runtime_dir=runtime, cache_dir=cache_dir,
             max_archive_bytes=integer("CHAPTER_MAX_ARCHIVE_BYTES"),
             max_image_bytes=integer("CHAPTER_MAX_IMAGE_BYTES"),
