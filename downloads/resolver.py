@@ -28,22 +28,35 @@ def page_urls(record):
         for i, entry in enumerate(record.manifest)]
 
 
-def catalog(source_name, series_id, data):
+def catalog(source_name, series_id, data, use_archives=True):
     """Register only server-resolved identities; never accept arbitrary URLs in job APIs."""
     result = copy.deepcopy(data)
     downloads = {}
+    selections = []
+    for number, chapter in result["chapters"].items():
+        for group_id in chapter["groups"]:
+            label = str(result["groups"].get(str(group_id), group_id))
+            group = group_identity(group_id, label)
+            key = identity(source_name, series_id, number, group)
+            selections.append((number, group_id, label, key, group))
+    keys = {item[3] for item in selections}
+    existing = set(DownloadedChapter.objects.filter(chapter_key__in=keys).values_list("chapter_key", flat=True))
+    DownloadedChapter.objects.bulk_create([
+        DownloadedChapter(chapter_key=key, source=source_name, series=series_id,
+                          chapter=chapter_number(number), group=group,
+                          title=str(result.get("title", ""))[:512])
+        for number, group_id, label, key, group in selections if key not in existing
+    ], ignore_conflicts=True)
+    records = {record.chapter_key: record for record in DownloadedChapter.objects.filter(chapter_key__in=keys)}
     for number, chapter in result["chapters"].items():
         chapter_downloads = {}
         for group_id in chapter["groups"]:
             label = str(result["groups"].get(str(group_id), group_id))
             group = group_identity(group_id, label)
             key = identity(source_name, series_id, number, group)
-            record, _ = DownloadedChapter.objects.get_or_create(chapter_key=key, defaults={
-                "source": source_name, "series": series_id, "chapter": chapter_number(number),
-                "group": group, "title": str(result.get("title", ""))[:512],
-            })
+            record = records[key]
             chapter_downloads[str(group_id)] = {"key": key, "status": record.status, "group": label}
-            if record.status == "ready":
+            if use_archives and record.status == "ready":
                 chapter["groups"][group_id] = page_urls(record)
         downloads[str(number)] = chapter_downloads
     result["downloads"] = downloads

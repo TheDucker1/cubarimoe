@@ -1,6 +1,6 @@
 # Encrypted chapter downloads and local reading cache
 
-Status: agreed design, ready for implementation. Provider configuration and resource limits will be supplied during setup. Application code has not been changed for this feature.
+Status: implemented on `feat/s3-cache`. Required private configuration and resource limits must be supplied before service startup. See [setup](chapter-download-setup.md) and [implementation progress](implementation-progress.md) for verified behavior and remaining deployment checks.
 
 ## Purpose and scope
 
@@ -90,7 +90,8 @@ Prefer a new `downloads` Django app so legacy source adapters and reader models 
 | DownloadedChapter | Canonical source/series/chapter/group identity, chapter_key, display labels, availability/deletion state, current archive version, object key, encrypted size, page count, ordered page manifest, timestamps, last error |
 | DownloadJob | Chapter reference, job type, queue order, state, accepted timestamp, attempts, next eligible time, progress/page count, cancellation request, target archive version/object key, timestamps, last error |
 | ArchiveCacheEntry | Chapter key/version, generated local filename, byte size, last-access time |
-| UpstreamCooldown | Host or effective upstream service, next eligible request time, failure count |
+| UpstreamCooldown | Host/global service, next eligible request time, persistent blocking flag |
+| SeriesSnapshot | Source/series identity and durable source metadata for offline archive reading |
 
 Do not overload archive availability with job status: queued or uploading does not mean readable. Avoid storing image bytes or keys in the database. A deletion job has its own completion state.
 
@@ -149,7 +150,7 @@ The page endpoint validates identity/version and page number against the manifes
 
 On a hit, update last access, read the encrypted archive, authenticate/decrypt in memory, and serve the requested ZIP entry with the correct image content type. Do not unpack the chapter to disk. Use independent archive readers for concurrent responses.
 
-Default cache limit: 20 encrypted archives. Support an additional byte budget and evict least recently used eligible entries until both limits hold. An object larger than the disk cache budget may be served without being retained, subject to the memory/archive-size limit. Expired temporary files and stale cache rows are reconciled on startup; filesystem bytes are included in disk accounting.
+Default cache limit: 20 encrypted archives. Support an additional byte budget and evict least recently used eligible entries until both limits hold. An object larger than the disk cache budget may be served without being retained, subject to the memory/archive-size limit. Expired temporary files and stale cache rows are reconciled at worker startup and before archive loads; filesystem bytes are included in disk accounting.
 
 Cache eviction is local only and never changes remote availability. Coordinate active reads/loads with eviction; release file references after responses complete. Lock and LRU implementation can remain simple for one web process.
 
@@ -232,7 +233,7 @@ Suggested files within the new downloads app:
 | `cache.py` | Disk files, atomic writes, LRU, size accounting, concurrent-load coordination |
 | `tasks.py` | Huey task definitions referencing application job IDs |
 | `worker.py` | Download/delete workflow, HTTP policy, simple unfinished-job restart scan, cancellation ordering; no custom queue engine |
-| `rate_limit.py` | PyrateLimiter integration, persisted completion gaps/cooldowns, HTTP status policy |
+| `transport.py` | PyrateLimiter integration, persisted completion gaps/cooldowns, HTTP status policy |
 | `views.py` / `urls.py` | Management endpoints, image serving, optional CBZ export |
 | Huey Django integration | Existing `run_huey` management command; one consumer/worker |
 
@@ -240,34 +241,29 @@ New third-party dependencies: `huey`, `pyrate-limiter`, `cryptography`, and `bot
 
 ## Additional configuration
 
-Names are proposed and should be implemented as settings backed by environment variables. No real credentials belong in documentation or version control.
+Configuration is validated at startup, loaded from an owner-only JSON file selected by `CHAPTER_CONFIG_FILE`, with explicit environment overrides. No real credentials belong in documentation or version control. The earlier feature-disable proposal is superseded by the user's requirement: service startup always refuses incomplete configuration.
 
-| Setting | Purpose / proposed default |
+| Implemented setting | Purpose / default |
 | --- | --- |
-| `CHAPTER_DOWNLOADS_ENABLED` | Feature switch; disabled until configuration is complete |
-| `CHAPTER_MASTER_PASSWORD` | Required startup secret |
-| `CHAPTER_KDF_SALT` | Required persistent random installation salt, encoded consistently |
-| `CHAPTER_KDF_*` | Versioned scrypt parameters; select after measuring startup memory/time |
-| `CHAPTER_S3_ENDPOINT_URL` | User-provided S3-compatible endpoint |
-| `CHAPTER_S3_BUCKET` / `CHAPTER_S3_PREFIX` | Bucket and object namespace |
-| `CHAPTER_S3_ACCESS_KEY_ID` / `CHAPTER_S3_SECRET_ACCESS_KEY` | Credentials through environment or secret configuration |
-| `CHAPTER_S3_REGION` / `CHAPTER_S3_ADDRESSING_STYLE` | Provider-specific compatibility settings |
-| `CHAPTER_S3_DELETE_MODE` | Initial mode: permanent deletion in a versioning-disabled bucket |
-| `CHAPTER_CACHE_DIR` | Dedicated directory containing only encrypted cache files |
+| `CHAPTER_CONFIG_FILE` | Private owner-only JSON configuration path; optional when all required values are supplied through environment |
+| `SECRET_KEY` | Required private Django signing/session secret |
+| `CHAPTER_MASTER_PASSWORD`, `CHAPTER_KDF_SALT` | Required password and persistent base64 installation salt |
+| `CHAPTER_KDF_N`, `CHAPTER_KDF_R`, `CHAPTER_KDF_P` | Validated scrypt parameters; 32768, 8, 1 |
+| `CHAPTER_S3_ENDPOINT_URL`, `CHAPTER_S3_BUCKET` | Required HTTPS provider endpoint and unversioned private bucket |
+| `CHAPTER_S3_ACCESS_KEY_ID`, `CHAPTER_S3_SECRET_ACCESS_KEY` | Required private credentials |
+| `CHAPTER_S3_REGION`, `CHAPTER_S3_ADDRESSING_STYLE` | Required provider region and `path`/`virtual` style |
+| `CHAPTER_S3_PREFIX` | `chapters` |
+| `CHAPTER_RUNTIME_DIR` | Dedicated owner-only directory; default checkout `.chapter-data`; contains worker/cache locks, Huey and limiter SQLite files |
+| `CHAPTER_CACHE_DIR` | Default runtime `cache` subdirectory |
 | `CHAPTER_CACHE_MAX_FILES` | 20 |
-| `CHAPTER_CACHE_MAX_BYTES` | Optional second bound; choose for available disk |
-| `CHAPTER_MAX_ARCHIVE_BYTES` / `CHAPTER_MAX_IMAGE_BYTES` | Required finite limits; choose from available RAM and expected chapter sizes |
-| `CHAPTER_MAX_ACTIVE_DECRYPTIONS` | 1 initially |
-| `CHAPTER_REQUEST_DELAY_SECONDS` | 2 initially; configurable |
-| `CHAPTER_REQUEST_RATE_LIMITS` | Short/long-term budgets enforced by PyrateLimiter; short-term capacity 1 |
-| `CHAPTER_REQUEST_TIMEOUT_SECONDS` | Finite timeout; proposed 30 |
-| `CHAPTER_MAX_RETRIES` | Proposed 3; cooldown policy applies |
-| `CHAPTER_WORKER_LOCK_PATH` | Local exclusive lock for the only download worker |
-| `HUEY` | SqliteHuey database path, immediate=False, one thread worker, graceful shutdown configuration |
-| `CHAPTER_RATE_LIMIT_DB_PATH` | Persistent SQLite limiter storage outside temporary directories |
-| `CHAPTER_QUEUE_POLL_SECONDS` | 2 while active; backoff/visibility rules apply |
-| `CHAPTER_MAX_BULK_ITEMS` | Proposed 100 per API request; larger UI selections are submitted in sequential batches |
-| `CHAPTER_ACCESS_MODE` | Explicit single-user authentication or trusted-network policy |
+| `CHAPTER_CACHE_MAX_BYTES` | Required disk byte budget |
+| `CHAPTER_MAX_ARCHIVE_BYTES`, `CHAPTER_MAX_IMAGE_BYTES` | Required finite limits; archive at most 512 MiB |
+| `CHAPTER_REQUEST_DELAY_SECONDS` | Two seconds after completion; minimum one |
+| `CHAPTER_REQUEST_RATE_LIMITS` | `[[1, 2], [300, 3600]]`; persisted PyrateLimiter budgets |
+| `CHAPTER_REQUEST_TIMEOUT_SECONDS`, `CHAPTER_MAX_RETRIES` | 30 seconds, three attempts |
+| `CHAPTER_MAX_BULK_ITEMS` | 100; larger frontend selections use sequential batches |
+
+Fixed initial policies: two-second polling, one archive decryption per web process, one thread worker with an exclusive local lock, single-object uploads, permanent deletion in an unversioned bucket, and staff-session authentication plus CSRF for management. Reading follows the existing reader boundary. These policies do not have placeholder settings requiring later decisions. `DEBUG=True` is refused while private configuration is loaded.
 
 Storage permissions need object read/write/delete for the configured prefix. Validate that the initial provider supports the selected single-object upload size and simple overwrite/delete semantics. Keep TLS verification enabled. Add startup validation and a read-only diagnostic command so incorrect credentials, salt encoding, cache permissions, or unsupported configuration fail clearly.
 
@@ -284,7 +280,7 @@ Test failures and limits, not just the happy path. Initial rollout should use on
 
 ## Implementation defaults and setup inputs
 
-The architecture is concluded. Remaining work is selecting compatible dependency pins, integrating source adapters, and supplying deployment values, not designing another queue or progress transport.
+The architecture is concluded. Compatible dependency pins and source integration are implemented. Remaining deployment work is supplying private values and checking the actual provider, browser flow, and one small chapter before broader use.
 
 - User supplies S3 provider, endpoint, bucket, credentials, and addressing style later. Initial storage uses versioning disabled and no retention lock; revisit only if provider constraints require it.
 - Set finite RAM/archive/image limits and a disk byte cap after checking deployment resources. File-count default remains 20; polling interval remains two seconds.
@@ -303,3 +299,13 @@ The architecture is concluded. Remaining work is selecting compatible dependency
 - [Cryptography key derivation](https://cryptography.io/en/latest/hazmat/primitives/key-derivation-functions/): password KDFs and HKDF.
 - [Cryptography authenticated encryption](https://cryptography.io/en/latest/hazmat/primitives/aead/): AES-GCM, associated data, nonce uniqueness, and authentication failure.
 - [S3 GetObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html) and [DeleteObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html): object access and versioned deletion semantics; confirm compatibility with the selected provider.
+
+## Implementation notes
+
+The implemented catalog route is `GET /downloads/catalog/<source>/<series>/`; it reads the durable metadata snapshot and performs batched chapter-state lookups, with no upstream polling. Explicit series-page browsing refreshes source metadata; accepted chapter reading uses durable snapshots. Source adapters share the worker HTTP context, and their existing executor calls switch to sequential execution inside that context.
+
+Cleanup tasks have priority alongside remote deletion. Cancellation still finishes while upstream downloads are paused. Old download retries are rejected when a chapter is already ready, and delayed cleanup retries skip objects subsequently accepted. Unsupported/non-image page responses also pause upstream downloads conservatively.
+
+The existing browser save-to-device implementation remains separate. Stored pages use ordinary local image URLs compatible with the reader. Metadata availability responses are private and uncached so deletion cannot leave shared caches advertising stale local URLs.
+
+Tests use isolated configuration, fake transport/storage, and Botocore Stubber. No live S3 permissions, provider transfer/deletion behavior, browser interaction, or live compatibility of each legacy source has been verified. Setup and the initial small-chapter check remain required before production use.

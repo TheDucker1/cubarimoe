@@ -59,6 +59,12 @@ def selection(request):
 def jobs(request):
     if request.method == "GET":
         result = snapshot()
+        records = DownloadedChapter.objects.all()
+        if request.GET.get("source") and request.GET.get("series"):
+            records = records.filter(source=request.GET["source"], series=request.GET["series"])
+        else:
+            records = records.filter(status__in=("ready", "deleting"))
+        result["chapters"] = list(records.values("chapter_key", "chapter", "group", "status"))
         result["cache"] = {
             "files": ArchiveCacheEntry.objects.count(),
             "bytes": ArchiveCacheEntry.objects.aggregate(total=Sum("size"))["total"] or 0,
@@ -93,7 +99,7 @@ def delete_chapter(request, chapter_key):
 @staff_api
 @require_GET
 def job_detail(request, job_id):
-    job = next((item for item in snapshot()["jobs"] if item["id"] == job_id), None)
+    job = next((item for item in snapshot(job_id=job_id)["jobs"] if item["id"] == job_id), None)
     if job is None:
         return JsonResponse({"error": "Job not found."}, status=404)
     return JsonResponse(job)
@@ -123,8 +129,11 @@ def cache_clear(request):
 @staff_api
 @require_GET
 def series_catalog(request, source_name, series_id):
-    from .integration import series_data
-    data = series_data(source_by_name(source_name), series_id)
+    from .models import SeriesSnapshot
+    cached = SeriesSnapshot.objects.filter(source=source_name, series=series_id).first()
+    if cached is None:
+        return JsonResponse({"error": "Series metadata is unavailable. Reload the series page."}, status=409)
+    data = catalog(source_name, series_id, cached.data)
     return JsonResponse({"groups": data["groups"], "downloads": data["downloads"]})
 
 
@@ -148,7 +157,7 @@ def image(request, chapter_key, version, page):
                     return HttpResponse(status=404)
             response = HttpResponse(contents, content_type=entry["type"])
             response["Content-Length"] = str(len(contents))
-        except DownloadError:
+        except (DownloadError, OSError):
             return JsonResponse({"error": "Stored chapter unavailable. Refresh the chapter or check storage configuration."}, status=503)
     response["ETag"] = etag
     response["Cache-Control"] = "private, max-age=3600"

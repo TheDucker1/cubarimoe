@@ -5,6 +5,7 @@ import os
 import tempfile
 import uuid
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
@@ -41,6 +42,24 @@ class ConfigurationTests(TestCase):
         self.assertNotIn(settings.CHAPTER_CONFIG.password, repr(settings.CHAPTER_CONFIG))
         self.assertNotIn(settings.CHAPTER_CONFIG.secret_key, repr(settings.CHAPTER_CONFIG))
 
+    def test_private_config_loads_without_copying_secrets_into_environment(self):
+        from .settings import test_values
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "private.json"
+            values = dict(test_values)
+            values["CHAPTER_CACHE_MAX_FILES"] = 5
+            path.write_text(json.dumps(values))
+            path.chmod(0o600)
+            environment = {"CHAPTER_CONFIG_FILE": str(path), "CHAPTER_CACHE_MAX_FILES": "7"}
+            result = load_configuration(Path(directory), environment)
+            self.assertEqual(result.cache_max_files, 7)
+            self.assertEqual(result.password, values["CHAPTER_MASTER_PASSWORD"])
+            self.assertNotIn("CHAPTER_MASTER_PASSWORD", environment)
+            values["CHAPTER_S3_BUCKET"] = None
+            path.write_text(json.dumps(values))
+            with self.assertRaises(ImproperlyConfigured):
+                load_configuration(Path(directory), environment)
+
 
 class ArchiveEncryptionTests(TestCase):
     def test_order_and_authenticated_round_trip(self):
@@ -66,6 +85,9 @@ class ArchiveEncryptionTests(TestCase):
             cipher.decrypt(encrypted, identity("gist", "series", "2", "group"), version)
         with self.assertRaises(DownloadError):
             cipher.decrypt(encrypted, key, uuid.uuid4())
+        wrong_password = Cipher(replace(settings.CHAPTER_CONFIG, password="incorrect-master-password"))
+        with self.assertRaises(DownloadError):
+            wrong_password.decrypt(encrypted, key, version)
 
     def test_rejects_html_and_oversized_image(self):
         builder = ArchiveBuilder(settings.CHAPTER_CONFIG, "a" * 64, uuid.uuid4())

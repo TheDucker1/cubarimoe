@@ -1,6 +1,8 @@
 """Worker HTTP policy. All source adapters share this context, never a new thread."""
 import contextvars
 import ipaddress
+import math
+import random
 import socket
 import time
 from contextlib import contextmanager
@@ -95,18 +97,26 @@ class RequestGate:
         value = response.headers.get("Retry-After") if response is not None else None
         if value:
             try:
-                return max(self.config.delay, float(value))
+                seconds = float(value)
+                if math.isfinite(seconds) and 0 <= seconds <= 365 * 86400:
+                    return max(self.config.delay, seconds)
             except ValueError:
                 try:
-                    return max(self.config.delay, (parsedate_to_datetime(value) - timezone.now()).total_seconds())
+                    seconds = (parsedate_to_datetime(value) - timezone.now()).total_seconds()
+                    if 0 <= seconds <= 365 * 86400:
+                        return max(self.config.delay, seconds)
                 except (TypeError, ValueError, OverflowError):
                     pass
-        return min(300, self.config.delay * 2 ** (attempt + 1))
+        delay = min(300, self.config.delay * 2 ** (attempt + 1))
+        return delay + random.uniform(0, delay * 0.25)
+
+    def block(self, url):
+        self._cooldown(urlsplit(url).hostname, self.config.delay, blocked=True)
 
     def request(self, method, url, limit=None, **kwargs):
         limit = limit or min(self.config.max_archive_bytes, 8 * 1024 * 1024)
         kwargs.pop("timeout", None)
-        kwargs.pop("allow_redirects", None)
+        follow_redirects = kwargs.pop("allow_redirects", True)
         kwargs.pop("stream", None)
         initial_headers = dict(kwargs.pop("headers", {}))
         attempts = 0
@@ -137,6 +147,12 @@ class RequestGate:
                         raise DownloadError("Upstream request retry limit reached; cooldown is preserved.")
                     continue
                 if response.is_redirect:
+                    if not follow_redirects:
+                        # Legacy git.io resolution inspects Location and performs its next
+                        # request explicitly through this same gate.
+                        response._content = b""
+                        response._content_consumed = True
+                        return response
                     redirects += 1
                     if redirects > 5:
                         raise DownloadError("Upstream returned too many redirects.")
@@ -185,3 +201,5 @@ class RequestGate:
 
     def close(self):
         self.session.close()
+        for bucket in self.limiter.bucket_group.values():
+            bucket.close()

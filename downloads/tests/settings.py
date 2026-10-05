@@ -4,7 +4,8 @@ import os
 import tempfile
 from unittest.mock import patch
 
-TEST_RUNTIME = tempfile.mkdtemp(prefix="cubari-download-tests-")
+_test_runtime = tempfile.TemporaryDirectory(prefix="cubari-download-tests-")
+TEST_RUNTIME = _test_runtime.name
 test_values = {
     "CHAPTER_MASTER_PASSWORD": base64.b64encode(os.urandom(32)).decode(),
     "CHAPTER_KDF_SALT": base64.b64encode(os.urandom(16)).decode(),
@@ -28,3 +29,5 @@ DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memor
 ALLOWED_HOSTS = ["testserver", "localhost"]
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 CHAPTER_CONFIG_FILE = None
+# Legacy apps have empty/ignored migration packages in this checkout.
+MIGRATION_MODULES = {"reader": None, "misc": None, "homepage": None}

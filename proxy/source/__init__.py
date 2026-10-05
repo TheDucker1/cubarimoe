@@ -55,8 +55,9 @@ class ProxySource(metaclass=abc.ABCMeta):
         )(request)
 
     def _cached_response(self, request, request_func):
-        duration = self.cache_duration()
-        return cache_control(public=True, max_age=duration, s_maxage=duration)(
+        # These pages now contain per-session CSRF controls and changing archive availability.
+        # Source metadata remains cached by api_cache; never share/cache personalized HTML.
+        return cache_control(private=True, no_store=True, max_age=0)(
             request_func
         )(request)
 
@@ -93,12 +94,13 @@ class ProxySource(metaclass=abc.ABCMeta):
             f"{settings.EXTERNAL_PROXY_URL}/v1/image/{encode(url)}?source=cubari_host"
         )
 
-    @cache_control(public=True, max_age=60, s_maxage=60)
+    @cache_control(private=True, no_store=True, max_age=0)
     def reader_view(self, request, meta_id, chapter, page=None):
         if page:
             try:
                 from downloads.integration import series_data
-                data = series_data(self, meta_id)
+                use_archives = not (request.user.is_staff and request.GET.get("upstream") == "1")
+                data = series_data(self, meta_id, use_archives=use_archives)
             except Exception as e:
                 return self._processing_error(request, e)
             if data:
@@ -136,6 +138,8 @@ class ProxySource(metaclass=abc.ABCMeta):
     def series_view(self, request, meta_id):
         try:
             data = self.series_page_handler(meta_id)
+            from downloads.integration import series_data
+            series_data(self, meta_id, refresh=True)
         except Exception as e:
             return self._processing_error(request, e)
         if data:
@@ -159,7 +163,8 @@ class ProxySource(metaclass=abc.ABCMeta):
     def series_api_view(self, request, meta_id):
         try:
             from downloads.integration import series_data
-            data = series_data(self, meta_id)
+            use_archives = not (request.user.is_staff and request.GET.get("upstream") == "1")
+            data = series_data(self, meta_id, use_archives=use_archives)
         except Exception as e:
             return self._processing_error(request, e)
         if data:
@@ -175,9 +180,13 @@ class ProxySource(metaclass=abc.ABCMeta):
     def chapter_api_view(self, request, meta_id):
         try:
             from downloads.integration import ready_chapter_for_locator
-            pages = ready_chapter_for_locator(self.get_reader_prefix(), meta_id)
+            pages = None if request.user.is_staff and request.GET.get("upstream") == "1" else ready_chapter_for_locator(
+                self.get_reader_prefix(), meta_id
+            )
             if pages is not None:
-                return HttpResponse(json.dumps(pages), content_type="application/json")
+                return self._cached_response(request, lambda request: HttpResponse(
+                    json.dumps(pages), content_type="application/json"
+                ))
             data = self.chapter_api_handler(meta_id)
         except Exception as e:
             return self._processing_error(request, e)

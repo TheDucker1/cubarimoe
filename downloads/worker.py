@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .archive import ArchiveBuilder
+from .archive import ArchiveBuilder, image_type
 from .cache import remove_chapter
 from .crypto import get_cipher
 from .errors import Blocked, Cancelled, DownloadError
@@ -49,12 +49,18 @@ def cleanup_target(job):
 def run_job(job):
     if job.state in TERMINAL:
         return
-    progress(job, state="resolving", attempts=job.attempts + 1, error="", completed_pages=0, transferred_bytes=0)
+    progress(job, state="resolving", attempts=job.attempts + 1, error="", completed_pages=0,
+             total_pages=0, transferred_bytes=0)
     builder = None
     gate = None
     try:
         if job.kind == "cleanup":
-            get_storage().delete(job.object_key)
+            # A delayed cleanup retry must not remove a target subsequently accepted.
+            accepted = DownloadedChapter.objects.filter(
+                pk=job.chapter_id, status="ready", object_key=job.object_key
+            ).exists()
+            if not accepted:
+                get_storage().delete(job.object_key)
             progress(job, state="accepted", accepted_at=timezone.now())
             return
         if job.kind == "delete":
@@ -71,6 +77,11 @@ def run_job(job):
             for index, page in enumerate(pages):
                 gate.check_cancelled()
                 response = gate.request("GET", page["src"], limit=settings.CHAPTER_CONFIG.max_image_bytes)
+                try:
+                    image_type(response.content)
+                except DownloadError:
+                    gate.block(page["src"])
+                    raise Blocked("Upstream returned a non-image or unsupported image. Downloads paused; explicit retry is required.") from None
                 builder.append(response.content, page.get("description"))
                 progress(job, state="downloading", completed_pages=index + 1,
                          transferred_bytes=job.transferred_bytes + len(response.content))

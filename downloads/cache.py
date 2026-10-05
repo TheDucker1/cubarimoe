@@ -37,6 +37,36 @@ def _remove(entry):
     entry.delete()
 
 
+def _evict_for(size=0, files=0):
+    config = settings.CHAPTER_CONFIG
+    while True:
+        entries = ArchiveCacheEntry.objects.all()
+        total = entries.aggregate(total=Sum("size"))["total"] or 0
+        if entries.count() + files <= config.cache_max_files and total + size <= config.cache_max_bytes:
+            return
+        _remove(entries.order_by("accessed_at", "pk").first())
+
+
+def _reconcile():
+    config = settings.CHAPTER_CONFIG
+    for entry in ArchiveCacheEntry.objects.all():
+        path = config.cache_dir / entry.filename
+        if (not CACHE_FILENAME.fullmatch(entry.filename) or not path.is_file()
+                or path.is_symlink() or path.stat().st_size != entry.size):
+            entry.delete()
+    known = set(ArchiveCacheEntry.objects.values_list("filename", flat=True))
+    for candidate in config.cache_dir.iterdir():
+        if (owned_cache_file(candidate) and candidate.is_file()
+                and not candidate.is_symlink() and candidate.name not in known):
+            candidate.unlink()
+    _evict_for()
+
+
+def reconcile():
+    with cache_lock():
+        _reconcile()
+
+
 def encrypted_archive(chapter):
     config = settings.CHAPTER_CONFIG
     filename = "{}-{}.enc".format(chapter.chapter_key, chapter.archive_version)
@@ -45,11 +75,7 @@ def encrypted_archive(chapter):
         if not DownloadedChapter.objects.filter(pk=chapter.pk, status="ready", archive_version=chapter.archive_version).exists():
             raise DownloadError("Downloaded chapter is no longer available.")
         # Cleanup interrupted temporary files and files without durable LRU records.
-        known = set(ArchiveCacheEntry.objects.values_list("filename", flat=True))
-        for candidate in config.cache_dir.iterdir():
-            if (owned_cache_file(candidate) and candidate.is_file()
-                    and not candidate.is_symlink() and candidate.name not in known):
-                candidate.unlink()
+        _reconcile()
         entry = ArchiveCacheEntry.objects.filter(filename=filename).first()
         if entry and path.is_file() and not path.is_symlink() and path.stat().st_size == chapter.encrypted_size:
             data = path.read_bytes()
@@ -60,12 +86,7 @@ def encrypted_archive(chapter):
         data = get_storage().fetch(chapter.object_key, chapter.encrypted_size)
         if len(data) > config.cache_max_bytes:
             return data
-        while True:
-            entries = ArchiveCacheEntry.objects.all()
-            total = entries.aggregate(total=Sum("size"))["total"] or 0
-            if entries.count() < config.cache_max_files and total + len(data) <= config.cache_max_bytes:
-                break
-            _remove(entries.order_by("accessed_at", "pk").first())
+        _evict_for(len(data), 1)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(dir=str(config.cache_dir), prefix=".load-", delete=False) as stream:

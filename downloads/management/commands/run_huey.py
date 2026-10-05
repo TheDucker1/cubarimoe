@@ -23,6 +23,8 @@ class Command(HueyCommand):
                 raise CommandError("A chapter download worker is already running.") from None
             from downloads.worker import recover_jobs
             from downloads.tasks import drain_queue
+            from downloads.cache import reconcile
+            reconcile()
             recover_jobs()
             drain_queue()
             super().handle(*args, **options)

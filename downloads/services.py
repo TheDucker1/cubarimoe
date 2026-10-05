@@ -57,6 +57,8 @@ def cancel_job(job_id):
     job = DownloadJob.objects.select_for_update().get(pk=job_id)
     if job.state in TERMINAL:
         return
+    if job.kind != "download":
+        raise DownloadError("Only download jobs can be cancelled; removal and cleanup must finish.")
     job.cancel_requested = True
     job.save(update_fields=("cancel_requested", "updated_at"))
     wake_worker()
@@ -67,6 +69,8 @@ def retry_job(job_id):
     job = DownloadJob.objects.select_for_update().select_related("chapter").get(pk=job_id)
     if job.state != "failed":
         raise DownloadError("Only failed jobs can be retried.")
+    if job.kind == "download" and job.chapter.status == "ready":
+        raise DownloadError("Chapter is already downloaded. Remove it before downloading again.")
     if job.chapter.status == "deleting" and job.kind == "download":
         raise DownloadError("Chapter is being removed.")
     if job.chapter.jobs.exclude(pk=job.pk).exclude(state__in=TERMINAL).filter(kind=job.kind).exists():
@@ -79,9 +83,11 @@ def retry_job(job_id):
     wake_worker()
 
 
-def snapshot():
+def snapshot(job_id=None):
     jobs = list(DownloadJob.objects.select_related("chapter").exclude(state__in=TERMINAL))
     recent = list(DownloadJob.objects.select_related("chapter").filter(state__in=TERMINAL).order_by("-id")[:50])
+    if job_id is not None and not any(job.pk == job_id for job in jobs + recent):
+        recent.append(DownloadJob.objects.select_related("chapter").get(pk=job_id))
     waiting = [j for j in jobs if j.kind == "download"]
     positions = {j.pk: i + 1 for i, j in enumerate(waiting)}
     def serialize(job):

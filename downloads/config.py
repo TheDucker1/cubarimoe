@@ -1,6 +1,7 @@
 """Validated private configuration; values never appear in error messages."""
 import base64
 import json
+import math
 import os
 import stat
 from dataclasses import dataclass, field
@@ -71,7 +72,7 @@ def load_configuration(base_dir, environ=None):
         "CHAPTER_S3_SECRET_ACCESS_KEY", "CHAPTER_S3_REGION", "CHAPTER_S3_ADDRESSING_STYLE",
         "CHAPTER_MAX_ARCHIVE_BYTES", "CHAPTER_MAX_IMAGE_BYTES", "CHAPTER_CACHE_MAX_BYTES",
     )
-    missing = [name for name in required if not str(values.get(name, "")).strip()]
+    missing = [name for name in required if values.get(name) is None or not str(values.get(name, "")).strip()]
     if missing:
         raise ImproperlyConfigured("Required configuration missing: " + ", ".join(missing))
     try:
@@ -82,7 +83,8 @@ def load_configuration(base_dir, environ=None):
         parsed = urlsplit(endpoint)
         if (len(password) < 16 or len(django_secret) < 32 or len(salt) < 16
                 or parsed.scheme != "https" or not parsed.hostname or parsed.username
-                or parsed.password or parsed.query or parsed.fragment):
+                or parsed.password or parsed.query or parsed.fragment
+                or (parsed.port is not None and not 1 <= parsed.port <= 65535)):
             raise ValueError()
         style = values["CHAPTER_S3_ADDRESSING_STYLE"]
         if style not in ("path", "virtual"):
@@ -102,7 +104,11 @@ def load_configuration(base_dir, environ=None):
         if isinstance(rates, str):
             rates = json.loads(rates)
         rates = tuple((int(count), int(seconds)) for count, seconds in rates)
-        if delay < 1 or not 1 <= timeout <= 300 or not rates or any(c <= 0 or s <= 0 for c, s in rates):
+        rates = tuple(sorted(rates, key=lambda rate: rate[1]))
+        if (not math.isfinite(delay) or not math.isfinite(timeout) or delay < 1
+                or not 1 <= timeout <= 300 or not rates or any(c <= 0 or s <= 0 for c, s in rates)
+                or any(rates[i][0] >= rates[i + 1][0] or rates[i][1] >= rates[i + 1][1]
+                       for i in range(len(rates) - 1))):
             raise ValueError()
         n = integer("CHAPTER_KDF_N", 32768)
         r, p = integer("CHAPTER_KDF_R", 8), integer("CHAPTER_KDF_P", 1)
@@ -124,7 +130,9 @@ def load_configuration(base_dir, environ=None):
             max_bulk_items=integer("CHAPTER_MAX_BULK_ITEMS", 100),
             scrypt_n=n, scrypt_r=r, scrypt_p=p, rate_limits=rates,
         )
-        if config.max_image_bytes > config.max_archive_bytes or config.max_archive_bytes > 512 * 1024 * 1024:
+        if (config.max_image_bytes > config.max_archive_bytes or config.max_archive_bytes > 512 * 1024 * 1024
+                or config.max_retries > 10 or config.max_bulk_items > 1000 or config.cache_max_files > 10000
+                or not config.prefix or len(config.prefix) > 900 or ".." in config.prefix.split("/")):
             raise ValueError()
         return config
     except (ValueError, TypeError, KeyError):
@@ -134,9 +142,12 @@ def load_configuration(base_dir, environ=None):
 
 
 def prepare_directories(config):
-    for path in (config.runtime_dir, config.cache_dir):
-        if path.is_symlink():
-            raise ImproperlyConfigured("Chapter runtime directories must not be symbolic links.")
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077:
-            raise ImproperlyConfigured("Chapter runtime directories must be owner-only (mode 0700).")
+    try:
+        for path in (config.runtime_dir, config.cache_dir):
+            if path.is_symlink():
+                raise ImproperlyConfigured("Chapter runtime directories must not be symbolic links.")
+            path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077:
+                raise ImproperlyConfigured("Chapter runtime directories must be owner-only (mode 0700).")
+    except OSError:
+        raise ImproperlyConfigured("Chapter runtime directories could not be prepared. Check paths and permissions.") from None

@@ -10,6 +10,9 @@ def drain_queue():
     waiting = DownloadJob.objects.exclude(state__in=TERMINAL).select_related("chapter")
     job = waiting.filter(kind__in=("delete", "cleanup")).first()
     if job is None:
+        # Cancellation must finish even while a blocking response pauses downloads.
+        job = waiting.filter(kind="download", cancel_requested=True).first()
+    if job is None:
         if UpstreamCooldown.objects.filter(blocked=True).exists():
             return
         job = waiting.filter(kind="download").first()

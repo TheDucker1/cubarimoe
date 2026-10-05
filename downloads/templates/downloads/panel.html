@@ -1,0 +1,37 @@
+{% load static %}
+{% if user.is_staff %}
+<section class="chapter-downloads" data-source="{{ download_source }}" data-series="{{ download_series }}" aria-label="Stored chapter downloads">
+  <form hidden>{% csrf_token %}</form>
+  <h3>Stored chapters</h3>
+  <div class="d-selection-controls">
+    <label>Translation group <select class="d-group" aria-label="Translation group"></select></label>
+    <button type="button" class="d-visible">Select visible</button>
+    <button type="button" class="d-all">Select all chapters</button>
+    <button type="button" class="d-clear-selection">Clear selection</button>
+    <span class="d-count">0 selected</span>
+    <button type="button" class="d-download" disabled>Download selected</button>
+    <button type="button" class="d-remove" disabled>Remove downloaded selected</button>
+  </div>
+  <div class="d-reader-controls" hidden>
+    <button type="button" class="d-current-download">Store current chapter</button>
+    <button type="button" class="d-current-remove">Remove stored chapter</button>
+  </div>
+  <p class="d-message" role="status" aria-live="polite"></p>
+  <div class="d-queue-summary" role="status" aria-live="polite"></div>
+  <ul class="d-queue"></ul>
+  <details class="d-maintenance">
+    <summary>Local archive cache</summary>
+    <p class="d-cache-usage"></p>
+    <button type="button" class="d-clear-cache">Clear all local archive cache</button>
+    <p>This keeps your stored chapters. They will be fetched from storage again when needed.</p>
+  </details>
+  <a href="{% url 'download-queue' %}">Open download queue</a>
+</section>
+{% else %}
+<p><a href="/admin/login/?next={{ request.path|urlencode }}">Sign in</a> to manage stored chapters.</p>
+{% endif %}
+<p class="stored-chapter-error" hidden role="alert">A stored image could not be loaded. Check storage configuration or refresh the chapter.
+{% if user.is_staff %}<a class="d-source-fallback" href="#">Read from source instead</a> (contacts the upstream source).{% endif %}
+</p>
+<link rel="stylesheet" href="{% static 'downloads/downloads.css' %}">
+<script defer src="{% static 'downloads/downloads.js' %}"></script>

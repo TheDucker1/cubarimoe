@@ -3,7 +3,7 @@ from .models import DownloadedChapter, SeriesSnapshot
 from .resolver import catalog, page_urls
 
 
-def series_data(source, meta_id, refresh=False):
+def series_data(source, meta_id, refresh=False, use_archives=True):
     name = source.get_reader_prefix()
     cached = SeriesSnapshot.objects.filter(source=name, series=meta_id).first()
     # Reading accepted archives can proceed with the durable metadata snapshot.
@@ -16,7 +16,7 @@ def series_data(source, meta_id, refresh=False):
             raise DownloadError("Series metadata is unavailable.")
         data = result.objectify()
         SeriesSnapshot.objects.update_or_create(source=name, series=meta_id, defaults={"data": data})
-    return catalog(name, meta_id, data)
+    return catalog(name, meta_id, data, use_archives=use_archives)
 
 
 def ready_chapter_for_locator(source_name, meta_id):

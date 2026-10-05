@@ -1,12 +1,14 @@
 # Cubari.moe
 An image proxy powered by the Cubari reader.
 
+This branch includes encrypted server chapter downloads. Follow [the setup guide](docs/chapter-download-setup.md) before starting Django: private configuration is required, and missing values intentionally block startup. The [design](docs/encrypted-chapter-downloads.md) and [implementation progress](docs/implementation-progress.md) describe behavior and verification.
+
 Testing Supported By<br/>
 <img width="160" src="http://foundation.zurb.com/sites/docs/assets/img/logos/browser-stack.svg" alt="BrowserStack"/>
 
 ## Prerequisites 
 - git
-- python 3.6.5+
+- Python 3.8 (the verified runtime for this branch)
 - pip
 - virtualenv
 
@@ -31,10 +33,7 @@ cd ~/cubarimoe/app && source ../bin/activate
 pip3 install -r requirements.txt
 ```
 
-5. Change the value of the `SECRET_KEY` variable to a randomly generated string.
-```
-sed -i "s|\"o kawaii koto\"|\"$(openssl rand -base64 32)\"|" cubarimoe/settings/base.py
-```
+5. Configure the required secrets and storage using [the private configuration guide](docs/chapter-download-setup.md). Keep `SECRET_KEY` in private configuration along with the chapter password and storage credentials.
 
 6. Generate the default assets for cubarimoe.
 ```

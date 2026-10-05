@@ -1,0 +1,10 @@
+.chapter-downloads { padding: 1rem; margin: 1rem 0; border: 1px solid #777; border-radius: .35rem; }
+.chapter-downloads h3 { font-size: 1.2rem; }
+.chapter-downloads button, .chapter-downloads select { margin: .2rem; padding: .3rem .5rem; }
+.chapter-downloads button:disabled { opacity: .55; }
+.chapter-downloads .d-message { white-space: pre-line; }
+.chapter-downloads .d-queue { max-height: 20rem; overflow: auto; padding-left: 1.4rem; }
+.chapter-downloads .d-queue li { padding: .3rem 0; }
+.chapter-downloads .d-maintenance { margin: .75rem 0; }
+.d-chapter-status { display: block; font-size: .8rem; }
+.d-select-cell { width: 2rem; }

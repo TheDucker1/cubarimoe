@@ -115,7 +115,8 @@ function ReaderAPI(o) {
 	}
 
 	this.requestSeries = function(slug) {
-		this.seriesRequest = fetch(this.seriesUrl + slug + '/')
+		const upstream = new URLSearchParams(window.location.search).get('upstream') === '1';
+		this.seriesRequest = fetch(this.seriesUrl + slug + '/' + (upstream ? '?upstream=1' : ''))
 			.then(response => response.json())
 			.then(seriesData => {
 				seriesData = this.infuseSeriesData(seriesData);
@@ -3679,7 +3680,9 @@ function thirdPartySeriesHandler(url, chapter, group) {
 			let descriptions = chapter.descriptions[group];
 			try {
 				// Each group/chapter pair has a unique ID, returned by API
-				let pages = await fetch(`${chapter.groups[group]}`)
+				const chapterURL = new URL(chapter.groups[group], window.location.href);
+				if (new URLSearchParams(window.location.search).get('upstream') === '1') chapterURL.searchParams.set('upstream', '1');
+				let pages = await fetch(chapterURL.href)
 								.then(r => r.json());
 				pages.forEach((p, i) => {
 					if (typeof p === 'string' || p instanceof String) {

@@ -37,3 +37,6 @@ chapter-config*.json
 !chapter-config.example.json
 !downloads/migrations/
 !downloads/migrations/*.py
+!downloads/static/
+!downloads/static/downloads/
+!downloads/static/downloads/*

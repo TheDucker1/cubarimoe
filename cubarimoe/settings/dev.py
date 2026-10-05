@@ -5,7 +5,7 @@ from .base import *
 
 dev_domain = os.environ.get("DEV_CANONICAL_ROOT_DOMAIN", "localhost:8000")
 
-SECRET_KEY = os.environ.get("DEV_SECRET_KEY", "o kawaii koto")
+SECRET_KEY = CHAPTER_CONFIG.django_secret
 CANONICAL_ROOT_DOMAIN = dev_domain
 
 DEBUG = False
