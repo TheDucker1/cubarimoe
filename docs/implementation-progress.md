@@ -46,7 +46,7 @@ Tests use isolated SQLite/runtime directories and ephemeral generated secrets. N
 ## Commits
 
 - `8cddf6d`: backend foundation, authored GPT <gpt@users.noreply.github.com>.
-- Final implementation commit: frontend, failure/race tests, reviewed recovery safeguards, private setup guide, and updated design. See `git log` for its identifier; authored GPT <gpt@users.noreply.github.com>.
+- `a9199de`: final implementation, frontend, 41 failure/race/security tests, reviewed recovery safeguards, private setup guide, and updated design; authored GPT <gpt@users.noreply.github.com>.
 
 ## Remaining deployment checks
 
