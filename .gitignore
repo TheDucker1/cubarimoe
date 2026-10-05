@@ -30,3 +30,10 @@ static/
 
 #media root
 media/*
+
+# Private download runtime and configuration
+.chapter-data/
+chapter-config*.json
+!chapter-config.example.json
+!downloads/migrations/
+!downloads/migrations/*.py

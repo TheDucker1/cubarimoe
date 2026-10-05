@@ -97,11 +97,11 @@ class ProxySource(metaclass=abc.ABCMeta):
     def reader_view(self, request, meta_id, chapter, page=None):
         if page:
             try:
-                data = self.series_api_handler(meta_id)
+                from downloads.integration import series_data
+                data = series_data(self, meta_id)
             except Exception as e:
                 return self._processing_error(request, e)
             if data:
-                data = data.objectify()
                 if chapter.replace("-", ".") in data["chapters"]:
                     data["version_query"] = settings.STATIC_VERSION
                     data[
@@ -111,6 +111,8 @@ class ProxySource(metaclass=abc.ABCMeta):
                         "api_path"
                     ] = f"/{settings.PROXY_BASE_PATH}/api/{self.get_reader_prefix()}/series/"
                     data["image_proxy_url"] = settings.EXTERNAL_PROXY_URL
+                    data["download_source"] = self.get_reader_prefix()
+                    data["download_series"] = meta_id
                     data[
                         "reader_modifier"
                     ] = f"{settings.PROXY_BASE_PATH}/{self.get_reader_prefix()}"
@@ -140,6 +142,8 @@ class ProxySource(metaclass=abc.ABCMeta):
             data = data.objectify()
             data["synopsis"] = self.process_description(data["synopsis"])
             data["version_query"] = settings.STATIC_VERSION
+            data["download_source"] = self.get_reader_prefix()
+            data["download_series"] = meta_id
             data[
                 "relative_url"
             ] = f"{settings.PROXY_BASE_PATH}/{self.get_reader_prefix()}/{meta_id}"
@@ -154,11 +158,11 @@ class ProxySource(metaclass=abc.ABCMeta):
 
     def series_api_view(self, request, meta_id):
         try:
-            data = self.series_api_handler(meta_id)
+            from downloads.integration import series_data
+            data = series_data(self, meta_id)
         except Exception as e:
             return self._processing_error(request, e)
         if data:
-            data = data.objectify()
             return self._cached_response(
                 request,
                 lambda request: HttpResponse(
@@ -170,6 +174,10 @@ class ProxySource(metaclass=abc.ABCMeta):
 
     def chapter_api_view(self, request, meta_id):
         try:
+            from downloads.integration import ready_chapter_for_locator
+            pages = ready_chapter_for_locator(self.get_reader_prefix(), meta_id)
+            if pages is not None:
+                return HttpResponse(json.dumps(pages), content_type="application/json")
             data = self.chapter_api_handler(meta_id)
         except Exception as e:
             return self._processing_error(request, e)

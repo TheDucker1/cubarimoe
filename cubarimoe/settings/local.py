@@ -5,7 +5,7 @@ from .base import *
 
 CANONICAL_ROOT_DOMAIN = "localhost:8000"
 
-DEBUG = True
+DEBUG = False  # Never render debug tracebacks containing storage/password configuration.
 
 ALLOWED_HOSTS = [os.environ.get("ALLOWED_HOSTS", "localhost"), "kagu.algoinde.ru"]
 

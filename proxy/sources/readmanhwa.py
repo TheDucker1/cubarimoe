@@ -1,3 +1,4 @@
+from ..source.helpers import source_executor
 import json
 from concurrent import futures
 from datetime import datetime
@@ -59,7 +60,7 @@ class ReadManhwa(ProxySource):
 
     @api_cache(prefix="readmanhwa_series_dt", time=600)
     def series_api_handler(self, meta_id):
-        with futures.ThreadPoolExecutor(max_workers=2) as executor:
+        with source_executor(max_workers=2) as executor:
             result = executor.map(
                 lambda req: {
                     "type": req["type"],
@@ -152,7 +153,7 @@ class ReadManhwa(ProxySource):
 
     @api_cache(prefix="readmanhwa_series_page_dt", time=600)
     def series_page_handler(self, meta_id):
-        with futures.ThreadPoolExecutor(max_workers=2) as executor:
+        with source_executor(max_workers=2) as executor:
             result = executor.map(
                 lambda req: {
                     "type": req["type"],

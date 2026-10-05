@@ -36,6 +36,7 @@ sitemaps = {
 }
 
 urlpatterns = [
+    path("", include("downloads.urls")),
     path("admin/", admin.site.urls),
     path("", include("homepage.urls")),
     path("sitemap.xml", sitemap, {"sitemaps": sitemaps}),

@@ -18,7 +18,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 PARENT_DIR = BASE_DIR.parent
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "o kawaii koto")
+SECRET_KEY = ""  # Replaced only by validated private configuration below.
 
 CANONICAL_ROOT_DOMAIN = "localhost:8000"
 
@@ -44,6 +44,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "downloads.apps.DownloadsConfig",
+    "huey.contrib.djhuey",
 ]
 
 
@@ -170,3 +172,17 @@ EXTERNAL_REDLIB_URL = "https://reddit.hasuki.moe"
 PROXY_BASE_PATH = "read"
 
 METRICS_ENDPOINT = ""
+
+# Required configuration is private, validated, and redacted in repr/errors.
+from downloads.config import load_configuration
+CHAPTER_CONFIG = load_configuration(BASE_DIR)
+SECRET_KEY = CHAPTER_CONFIG.django_secret
+DEBUG = False
+HUEY = {
+    "name": "chapter-downloads",
+    "huey_class": "huey.SqliteHuey",
+    "filename": str(CHAPTER_CONFIG.runtime_dir / "queue.sqlite3"),
+    "immediate": False,
+    "results": False,
+    "consumer": {"workers": 1, "worker_type": "thread"},
+}

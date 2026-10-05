@@ -67,6 +67,10 @@ def get_wrapper(url, *, headers={}, use_proxy=False, secondary=False, **kwargs):
         if use_proxy
         else url
     )
+    from downloads.transport import current_gate
+    gate = current_gate()
+    if gate:
+        return gate.request("GET", request_url, headers={**GLOBAL_HEADERS, **headers}, **kwargs)
     return sensored_request_handler(
         lambda: requests.get(
             request_url,
@@ -84,6 +88,10 @@ def post_wrapper(url, headers={}, use_proxy=False, **kwargs):
         if use_proxy
         else url
     )
+    from downloads.transport import current_gate
+    gate = current_gate()
+    if gate:
+        return gate.request("POST", request_url, headers={**GLOBAL_HEADERS, **headers}, **kwargs)
     return sensored_request_handler(
         lambda: requests.post(
             request_url,
@@ -112,3 +120,23 @@ def api_cache(*, prefix, time):
         return inner
 
     return wrapper
+
+
+class SequentialExecutor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def map(self, function, values):
+        # Eager evaluation matches executor.map even after the context closes.
+        return list(map(function, values))
+
+
+def source_executor(max_workers):
+    from downloads.transport import current_gate
+    if current_gate():
+        return SequentialExecutor()
+    from concurrent.futures import ThreadPoolExecutor
+    return ThreadPoolExecutor(max_workers=max_workers)

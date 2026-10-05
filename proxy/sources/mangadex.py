@@ -1,3 +1,4 @@
+from ..source.helpers import source_executor
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime
 import html
@@ -134,7 +135,7 @@ class MangaDex(ProxySource):
     @api_cache(prefix="md_common_dt", time=600)
     def md_api_common(self, meta_id):
         current_offset = 0
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with source_executor(max_workers=2) as executor:
             result = executor.map(
                 lambda req: {
                     "type": req["type"],
@@ -177,7 +178,7 @@ class MangaDex(ProxySource):
                 current_offset = current_offset + 500
 
             # workers = 3 because aren't getting 2000+ chapter series soon (hopefully)
-            with ThreadPoolExecutor(max_workers=3) as executor:
+            with source_executor(max_workers=3) as executor:
                 results = executor.map(
                     lambda url: get_wrapper(
                         url=url,
@@ -377,7 +378,7 @@ class MangaDex(ProxySource):
     def chapter_api_handler(self, meta_id):
         at_home: str = "at-home"
         chapter: str = "chapter"
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with source_executor(max_workers=2) as executor:
             result = executor.map(
                 lambda req: {
                     "type": req["type"],
