@@ -4,7 +4,7 @@ The design is in [encrypted-chapter-downloads.md](encrypted-chapter-downloads.md
 
 ## Required private configuration
 
-Normal Django startup, including management commands, deliberately fails until required configuration is provided. There is no fallback password, S3 credential, or feature-disable escape hatch. Error messages name missing settings and never echo their values. DEBUG must remain false while these credentials are loaded.
+Normal Django startup, including management commands, deliberately fails until required configuration is provided. There is no fallback password, S3 credential, or feature-disable escape hatch. Error messages name missing or invalid settings and their validation rules, never their values. DEBUG must remain false while these credentials are loaded.
 
 The supported deployment is one web process and one Huey consumer with exactly one thread worker. Use the existing Python 3.8 environment and install the repository requirements. The additional packages are pinned to huey 2.5.2, pyrate-limiter 2.10.0, cryptography 44.0.3, and boto3 1.37.38.
 
@@ -51,6 +51,20 @@ Remote names use `objects/<64 random hex characters>`, without extensions or cha
 Optional settings use conservative defaults. `CHAPTER_RUNTIME_DIR` defaults to `.chapter-data` under the checkout; `CHAPTER_CACHE_DIR` defaults to its `cache` subdirectory. Overrides must be absolute, distinct paths in owner-only directories (0700). Keep this directory dedicated to chapter runtime data. The worker lock, Huey queue, and persistent limiter database reside under the runtime directory. Polling is every two seconds and archive decryption is limited to one request at a time per web process.
 
 Request pacing defaults to a two-second gap after completion, one request per two seconds, and 300 requests per hour. Configure `CHAPTER_REQUEST_RATE_LIMITS` as increasing `[request_count, seconds]` pairs. Configure `CHAPTER_REQUEST_DELAY_SECONDS` for longer completion gaps. A 403 pauses upstream downloads immediately; an explicit Retry action clears blocking flags but preserves time deadlines and rate history. Retries and redirects pass through the same gate.
+
+## Request settings
+
+| Setting | Meaning |
+| --- | --- |
+| `CHAPTER_REQUEST_DELAY_SECONDS` | Minimum wait after each worker upstream request finishes, including metadata, redirects, retries, and image pages. Finite number, minimum 1 second. |
+| `CHAPTER_REQUEST_TIMEOUT_SECONDS` | Connect/read timeout for worker HTTP and storage requests; 1–300 seconds inclusive. This is not a whole-chapter deadline; read timeout measures inactivity. |
+| `CHAPTER_MAX_RETRIES` | Failed-request attempt budget, including the first attempt; 3 means up to two retries. Positive integer, maximum 10. |
+| `CHAPTER_MAX_BULK_ITEMS` | Maximum chapter identities per management API submission, not parallel downloads; maximum 1000. |
+| `CHAPTER_REQUEST_RATE_LIMITS` | All `[request count, seconds]` budgets apply together globally and per host. Positive pairs with increasing counts and intervals. `[[1, 2], [300, 3600]]` means at most one request per two seconds and 300 per hour. |
+
+A 60-second completion gap and the default rate pairs are compatible. The gap makes actual throughput roughly at most 60 requests per hour before request durations/backoff, so the 300/hour ceiling is normally inactive. A timeout of 300 is valid and does not add a delay to successful requests.
+
+Startup errors now identify the specific invalid field without printing its value. An endpoint must include the `https://` scheme and hostname; a bare endpoint domain is not a complete URL. Environment overrides can take precedence over the private file.
 
 ## One-time setup and one-command startup
 

@@ -42,6 +42,42 @@ class ConfigurationTests(TestCase):
         self.assertNotIn(settings.CHAPTER_CONFIG.password, repr(settings.CHAPTER_CONFIG))
         self.assertNotIn(settings.CHAPTER_CONFIG.secret_key, repr(settings.CHAPTER_CONFIG))
 
+    def test_reported_request_settings_are_valid(self):
+        from .settings import test_values
+        values = dict(test_values, CHAPTER_REQUEST_DELAY_SECONDS=60,
+                      CHAPTER_REQUEST_TIMEOUT_SECONDS=300, CHAPTER_MAX_RETRIES=3,
+                      CHAPTER_MAX_BULK_ITEMS=100, CHAPTER_REQUEST_RATE_LIMITS=[[1, 2], [300, 3600]])
+        config = load_configuration(Path("/tmp"), values)
+        self.assertEqual((config.delay, config.timeout, config.max_retries, config.max_bulk_items), (60, 300, 3, 100))
+
+    def test_validation_names_the_setting_without_disclosing_values(self):
+        from .settings import test_values
+        invalid_values = {
+            "CHAPTER_MASTER_PASSWORD": "secret-marker",
+            "SECRET_KEY": "secret-marker",
+            "CHAPTER_KDF_SALT": "secret-marker",
+            "CHAPTER_S3_ENDPOINT_URL": "http://secret-marker.invalid",
+            "CHAPTER_S3_ADDRESSING_STYLE": "secret-marker",
+            "CHAPTER_RUNTIME_DIR": "secret-marker",
+            "CHAPTER_CACHE_DIR": "secret-marker",
+            "CHAPTER_REQUEST_DELAY_SECONDS": "secret-marker",
+            "CHAPTER_REQUEST_TIMEOUT_SECONDS": "secret-marker",
+            "CHAPTER_REQUEST_RATE_LIMITS": "secret-marker",
+            "CHAPTER_KDF_N": "secret-marker",
+            "CHAPTER_KDF_R": 7, "CHAPTER_KDF_P": 2,
+            "CHAPTER_S3_PREFIX": "secret-marker/../",
+            "CHAPTER_MAX_ARCHIVE_BYTES": 536870913,
+            "CHAPTER_MAX_IMAGE_BYTES": 1048577,
+            "CHAPTER_CACHE_MAX_BYTES": "secret-marker",
+            "CHAPTER_MAX_RETRIES": 11, "CHAPTER_MAX_BULK_ITEMS": 1001,
+            "CHAPTER_CACHE_MAX_FILES": 10001,
+        }
+        for name, value in invalid_values.items():
+            with self.subTest(setting=name), self.assertRaises(ImproperlyConfigured) as caught:
+                load_configuration(Path("/tmp"), dict(test_values, **{name: value}))
+            self.assertIn(name, str(caught.exception))
+            self.assertNotIn("secret-marker", str(caught.exception))
+
     def test_private_config_loads_without_copying_secrets_into_environment(self):
         from .settings import test_values
         with tempfile.TemporaryDirectory() as directory:

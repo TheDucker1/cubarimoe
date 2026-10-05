@@ -80,3 +80,11 @@ Supervisor handles Ctrl+C/SIGTERM, child failure, startup failure, and bounded s
 Lifecycle/config tests use temporary private files and benign local subprocesses, never real S3/upstream calls or the existing database. Setup guide distinguishes one-time initialization from one-command daily startup. Ordinary startup does not require live S3 connectivity for cached reading; setup and worker validate storage.
 
 Unified-service verification: all 48 isolated tests pass, including real local subprocess lifecycle tests for Ctrl+C/SIGTERM/failure cleanup and preflight/lock tests. systemd-analyze verify passes for the example unit; Bash/Python syntax, ignore rules, missing-config refusal, migration consistency, and diff checks pass. No real private configuration, live service, database migration, upstream request, or S3 operation was performed.
+
+## Follow-up: actionable configuration validation
+
+The user's posted delay=60, timeout=300, retry budget=3, bulk limit=100, rates=[[1,2],[300,3600]] are valid. A private, read-only check identified CHAPTER_S3_ENDPOINT_URL as the current failure: neither HTTPS scheme nor parsed hostname. No actual setting values were displayed or changed, and no remote requests were made.
+
+Replaced generic invalid-configuration errors with fixed setting names/rules, preserving value redaction and existing bounds. Added tests for the posted settings and field-specific errors across secret, URL, path, timing/rate/KDF, and resource inputs. Setup guide explains request semantics and environment precedence.
+
+Validation follow-up verification: all 50 isolated tests pass and git diff --check passes. Private configuration was read only for redacted diagnostics; it remains unchanged.
