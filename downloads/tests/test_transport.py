@@ -91,6 +91,17 @@ class RequestPolicyTests(TestCase):
             self.gate.request("GET", "https://another.example/image")
         self.assertEqual(send.call_count, 1)
 
+    def test_additive_jitter_never_shortens_completion_gap_and_is_persisted(self):
+        self.gate.config = replace(self.config, delay=60, jitter=15)
+        self.gate.session.request = Mock(side_effect=lambda *args, **kwargs: response())
+        for extra in (0, 15):
+            now = self.clock.now()
+            with patch("downloads.transport.random.uniform", return_value=extra) as randomize:
+                self.gate.request("GET", "https://images.example/page")
+            deadline = UpstreamCooldown.objects.get(host="*").next_eligible_at
+            self.assertGreaterEqual((deadline - now).total_seconds(), 60 + extra)
+            randomize.assert_called_once_with(0, 15)
+            self.clock.seconds = deadline.timestamp()
     def test_rate_history_survives_a_new_gate(self):
         self.gate.limiter.try_acquire("all-downloads")
         other = RequestGate(self.job)

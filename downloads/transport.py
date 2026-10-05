@@ -107,8 +107,11 @@ class RequestGate:
                         return max(self.config.delay, seconds)
                 except (TypeError, ValueError, OverflowError):
                     pass
-        delay = min(300, self.config.delay * 2 ** (attempt + 1))
+        delay = max(self.config.delay, min(300, self.config.delay * 2 ** (attempt + 1)))
         return delay + random.uniform(0, delay * 0.25)
+
+    def _completion_delay(self):
+        return self.config.delay + random.uniform(0, self.config.jitter)
 
     def block(self, url):
         self._cooldown(urlsplit(url).hostname, self.config.delay, blocked=True)
@@ -183,7 +186,7 @@ class RequestGate:
                 return response
             except requests.RequestException:
                 attempts += 1
-                self._cooldown(host, self.config.delay * 2 ** attempts)
+                self._cooldown(host, self._retry_delay(None, attempts - 1))
                 if attempts >= self.config.max_retries:
                     raise DownloadError("Upstream connection failed; retry limit reached.") from None
             except (ValueError, OverflowError):
@@ -193,7 +196,7 @@ class RequestGate:
                     response.close()
                 UpstreamCooldown.objects.update_or_create(
                     host="*", defaults={
-                        "next_eligible_at": timezone.now() + timedelta(seconds=self.config.delay),
+                        "next_eligible_at": timezone.now() + timedelta(seconds=self._completion_delay()),
                         # Preserve blocking flags; completion must not unpause a 403/429.
                         "blocked": UpstreamCooldown.objects.filter(host="*", blocked=True).exists(),
                     }

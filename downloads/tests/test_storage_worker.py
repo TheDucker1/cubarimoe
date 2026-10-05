@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from botocore.response import StreamingBody
-from botocore.stub import Stubber
+from botocore.stub import ANY, Stubber
 from django.conf import settings
 from django.core.management import get_commands
 from django.core.management.base import CommandError
@@ -48,12 +48,92 @@ class StorageTests(TestCase):
         self.storage.delete("target")
         self.stub.assert_no_pending_responses()
 
-    def test_versioned_and_suspended_buckets_rejected_before_upload(self):
+    def versioned(self, status="Enabled"):
+        self.stub.add_response("get_bucket_versioning", {"Status": status}, {"Bucket": self.bucket})
+        self.stub.add_response("list_object_versions", {}, {
+            "Bucket": self.bucket, "Prefix": settings.CHAPTER_CONFIG.prefix + "/", "MaxKeys": 1,
+        })
+        self.storage.verify()
+
+    def test_versioned_and_suspended_buckets_use_readonly_verification(self):
         for status in ("Enabled", "Suspended"):
             self.storage._verified = False
-            self.stub.add_response("get_bucket_versioning", {"Status": status}, {"Bucket": self.bucket})
-            with self.assertRaises(DownloadError):
-                self.storage.upload("target", b"encrypted")
+            self.versioned(status)
+            self.assertTrue(self.storage._versioned)
+        self.stub.assert_no_pending_responses()
+
+    def test_version_listing_permissions_required_and_errors_redacted(self):
+        self.stub.add_response("get_bucket_versioning", {"Status": "Enabled"}, {"Bucket": self.bucket})
+        self.stub.add_client_error("list_object_versions", service_error_code="AccessDenied",
+                                  service_message="secret-marker", expected_params={
+                                      "Bucket": self.bucket, "Prefix": settings.CHAPTER_CONFIG.prefix + "/", "MaxKeys": 1,
+                                  })
+        with self.assertRaises(DownloadError) as caught:
+            self.storage.verify()
+        self.assertNotIn("secret-marker", str(caught.exception))
+        self.assertFalse(self.storage._verified)
+
+    def test_paginated_permanent_deletion_filters_exact_key_and_delete_markers(self):
+        self.versioned()
+        query = {"Bucket": self.bucket, "Prefix": "target"}
+        self.stub.add_response("list_object_versions", {
+            "IsTruncated": True, "NextKeyMarker": "target", "NextVersionIdMarker": "v1",
+            "Versions": [{"Key": "target", "VersionId": "v1"}, {"Key": "target-extra", "VersionId": "untouched"}],
+        }, query)
+        self.stub.add_response("list_object_versions", {
+            "IsTruncated": False, "Versions": [{"Key": "target", "VersionId": "v2"}],
+            "DeleteMarkers": [{"Key": "target", "VersionId": "marker"}],
+        }, dict(query, KeyMarker="target", VersionIdMarker="v1"))
+        for version in ("v1", "v2", "marker"):
+            self.stub.add_response("delete_object", {}, {"Bucket": self.bucket, "Key": "target", "VersionId": version})
+        self.stub.add_response("list_object_versions", {
+            "Versions": [{"Key": "target-extra", "VersionId": "untouched"}],
+        }, query)
+        self.storage.delete("target")
+        self.stub.assert_no_pending_responses()
+
+    def test_failed_version_deletion_retries_remaining_versions_and_absent_is_noop(self):
+        self.versioned()
+        query = {"Bucket": self.bucket, "Prefix": "target"}
+        self.stub.add_response("list_object_versions", {"Versions": [
+            {"Key": "target", "VersionId": "v1"}, {"Key": "target", "VersionId": "v2"},
+        ]}, query)
+        self.stub.add_response("delete_object", {}, {"Bucket": self.bucket, "Key": "target", "VersionId": "v1"})
+        self.stub.add_client_error("delete_object", service_error_code="AccessDenied", service_message="secret-marker",
+                                  expected_params={"Bucket": self.bucket, "Key": "target", "VersionId": "v2"})
+        with self.assertRaises(DownloadError) as caught:
+            self.storage.delete("target")
+        self.assertNotIn("secret-marker", str(caught.exception))
+        self.stub.add_response("list_object_versions", {"Versions": [{"Key": "target", "VersionId": "v2"}]}, query)
+        self.stub.add_response("delete_object", {}, {"Bucket": self.bucket, "Key": "target", "VersionId": "v2"})
+        self.stub.add_response("list_object_versions", {}, query)
+        self.storage.delete("target")
+        self.stub.add_response("list_object_versions", {}, query)
+        self.storage.delete("target")
+        self.stub.assert_no_pending_responses()
+
+    def test_retained_version_prevents_reporting_complete_deletion(self):
+        self.versioned()
+        query = {"Bucket": self.bucket, "Prefix": "target"}
+        version = {"Versions": [{"Key": "target", "VersionId": "v1"}]}
+        self.stub.add_response("list_object_versions", version, query)
+        self.stub.add_response("delete_object", {}, {"Bucket": self.bucket, "Key": "target", "VersionId": "v1"})
+        self.stub.add_response("list_object_versions", version, query)
+        with self.assertRaises(DownloadError):
+            self.storage.delete("target")
+        self.stub.assert_no_pending_responses()
+
+    def test_restart_upload_purges_unaccepted_history_before_put(self):
+        self.versioned()
+        query = {"Bucket": self.bucket, "Prefix": "target"}
+        self.stub.add_response("list_object_versions", {"Versions": [{"Key": "target", "VersionId": "old"}]}, query)
+        self.stub.add_response("delete_object", {}, {"Bucket": self.bucket, "Key": "target", "VersionId": "old"})
+        self.stub.add_response("list_object_versions", {}, query)
+        self.stub.add_response("put_object", {"VersionId": "new"}, {
+            "Bucket": self.bucket, "Key": "target", "Body": b"encrypted", "ContentMD5": ANY,
+            "ContentType": "application/octet-stream",
+        })
+        self.storage.upload("target", b"encrypted")
         self.stub.assert_no_pending_responses()
 
     def test_wrong_size_closes_stream_and_sdk_error_is_sanitized(self):

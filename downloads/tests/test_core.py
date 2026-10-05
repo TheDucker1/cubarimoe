@@ -49,6 +49,7 @@ class ConfigurationTests(TestCase):
                       CHAPTER_MAX_BULK_ITEMS=100, CHAPTER_REQUEST_RATE_LIMITS=[[1, 2], [300, 3600]])
         config = load_configuration(Path("/tmp"), values)
         self.assertEqual((config.delay, config.timeout, config.max_retries, config.max_bulk_items), (60, 300, 3, 100))
+        self.assertEqual(config.jitter, 15)
 
     def test_validation_names_the_setting_without_disclosing_values(self):
         from .settings import test_values
@@ -61,6 +62,7 @@ class ConfigurationTests(TestCase):
             "CHAPTER_RUNTIME_DIR": "secret-marker",
             "CHAPTER_CACHE_DIR": "secret-marker",
             "CHAPTER_REQUEST_DELAY_SECONDS": "secret-marker",
+            "CHAPTER_REQUEST_JITTER_SECONDS": -1,
             "CHAPTER_REQUEST_TIMEOUT_SECONDS": "secret-marker",
             "CHAPTER_REQUEST_RATE_LIMITS": "secret-marker",
             "CHAPTER_KDF_N": "secret-marker",

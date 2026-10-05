@@ -15,6 +15,7 @@ class Storage:
     def __init__(self, config):
         self.config = config
         self._verified = False
+        self._versioned = False
         self._lock = threading.Lock()
         self.client = boto3.client(
             "s3", endpoint_url=config.endpoint, region_name=config.region,
@@ -30,9 +31,14 @@ class Storage:
                 return
             try:
                 response = self.client.get_bucket_versioning(Bucket=self.config.bucket)
-                # Suspended buckets can still retain versions; require a clean unversioned bucket.
-                if response.get("Status"):
-                    raise DownloadError("Storage bucket must have versioning disabled for chapter downloads.")
+                status = response.get("Status")
+                if status not in (None, "Enabled", "Suspended"):
+                    raise DownloadError("Storage returned an unsupported versioning state.")
+                self._versioned = status in ("Enabled", "Suspended")
+                if self._versioned:
+                    # Read-only permission check. Backblaze B2 always uses versioning.
+                    self.client.list_object_versions(Bucket=self.config.bucket,
+                                                     Prefix=self.config.prefix + "/", MaxKeys=1)
                 self._verified = True
             except (BotoCoreError, ClientError):
                 raise DownloadError("Storage configuration could not be verified. Check endpoint, bucket, and permissions.") from None
@@ -41,6 +47,10 @@ class Storage:
     def upload(self, key, data):
         self.verify()
         try:
+            if self._versioned:
+                # A restarted, unaccepted job may have left an upload at this target.
+                # Remove it before replacing it, avoiding retained ciphertext history.
+                self._delete_versions(key)
             self.client.put_object(
                 Bucket=self.config.bucket, Key=key, Body=data, ContentType="application/octet-stream",
                 ContentMD5=base64.b64encode(hashlib.md5(data).digest()).decode("ascii"),
@@ -69,9 +79,43 @@ class Storage:
     def delete(self, key):
         self.verify()
         try:
-            self.client.delete_object(Bucket=self.config.bucket, Key=key)
+            if self._versioned:
+                self._delete_versions(key)
+            else:
+                self.client.delete_object(Bucket=self.config.bucket, Key=key)
         except (BotoCoreError, ClientError):
             raise DownloadError("Stored chapter could not be deleted.") from None
+
+    def _versions(self, key):
+        versions = []
+        seen = set()
+        pages = self.client.get_paginator("list_object_versions").paginate(Bucket=self.config.bucket, Prefix=key)
+        for number, page in enumerate(pages):
+            if number >= 1000:
+                raise DownloadError("Stored chapter version listing exceeds the operation limit.")
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", []):
+                # Prefix lookup can include other keys. Never delete them.
+                if item.get("Key") != key:
+                    continue
+                version = item.get("VersionId")
+                if not isinstance(version, str) or not version:
+                    raise DownloadError("Storage returned invalid version metadata.")
+                if version not in seen:
+                    seen.add(version)
+                    versions.append(version)
+                if len(versions) > 10000:
+                    raise DownloadError("Stored chapter version count exceeds the operation limit.")
+        return versions
+
+    def _delete_versions(self, key):
+        # Gather before deleting: modifying pages while traversing markers can skip versions.
+        versions = self._versions(key)
+        if not versions:
+            return
+        for version in versions:
+            self.client.delete_object(Bucket=self.config.bucket, Key=key, VersionId=version)
+        if self._versions(key):
+            raise DownloadError("Stored chapter removal is incomplete. Explicit retry is required.")
 
 
 _storage = None

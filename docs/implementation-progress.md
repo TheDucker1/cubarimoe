@@ -19,7 +19,7 @@ Branch: `feat/s3-cache`. User authorized implementation and GPT-attributed check
 
 Implementation complete. One Huey thread worker and an exclusive consumer lock enforce sequential chapter operations. Source request wrappers and adapter executors share the worker's persisted rate gate. Redirects (including legacy manual Gist redirects), retries, completion gaps, Retry-After, blocking responses, cancellation, and restart cooldowns are covered by fake-clock tests.
 
-Ordered CBZs are constructed in RAM and encrypted with scrypt/HKDF/AES-GCM. Only ciphertext is uploaded/stored on disk. Storage requires an unversioned bucket, uses single PutObject uploads, and suppresses secret-bearing SDK/source exception details. Archives become ready only after upload and committed acceptance. Interrupted unfinished jobs restart from the beginning and overwrite the same recorded target; accepted, failed, and cancelled jobs remain terminal.
+Ordered CBZs are constructed in RAM and encrypted with scrypt/HKDF/AES-GCM. Only ciphertext is uploaded/stored on disk. Storage supports unversioned and versioned buckets with exact-key permanent version cleanup, uses single PutObject uploads, and suppresses secret-bearing SDK/source exception details. Archives become ready only after upload and committed acceptance. Interrupted unfinished jobs restart from the beginning and overwrite the same recorded target; accepted, failed, and cancelled jobs remain terminal.
 
 Persistent deletion/cleanup has priority over queued downloads. Cancellation still completes during an upstream block. Acceptance checks cancellation/deletion again after upload. Failed deletion retains deleting state. Old failed download retries cannot replace ready chapters, and delayed cleanup cannot delete a subsequently accepted archive.
 
@@ -55,7 +55,7 @@ Tests use isolated SQLite/runtime directories and ephemeral generated secrets. N
 3. Start one worker and one web process; perform browser verification of selection/group controls, polling, reading, cancellation, and removal.
 4. Use one small chapter first to measure actual request pacing, peak RAM/disk use, provider transfer/encryption/deletion behavior, and source compatibility before bulk jobs.
 
-Real-provider behavior, browser interaction, and live compatibility of every legacy source are unverified. Existing browser upstream reading/preloading is outside the worker gate. No automatic partial resume, SSE, decrypted CBZ export, multipart upload, password rotation, or versioned-bucket deletion is implemented, as agreed.
+Real-provider behavior, browser interaction, and live compatibility of every legacy source are unverified. Existing browser upstream reading/preloading is outside the worker gate. No automatic partial resume, SSE, decrypted CBZ export, multipart upload, or password rotation is implemented. Versioned-bucket permanent deletion was subsequently implemented for Backblaze B2; see the latest follow-up.
 
 ## Resume instructions
 
@@ -88,3 +88,13 @@ The user's posted delay=60, timeout=300, retry budget=3, bulk limit=100, rates=[
 Replaced generic invalid-configuration errors with fixed setting names/rules, preserving value redaction and existing bounds. Added tests for the posted settings and field-specific errors across secret, URL, path, timing/rate/KDF, and resource inputs. Setup guide explains request semantics and environment precedence.
 
 Validation follow-up verification: all 50 isolated tests pass and git diff --check passes. Private configuration was read only for redacted diagnostics; it remains unchanged.
+
+## Follow-up: additive jitter and Backblaze versioning
+
+User configured a Backblaze B2 bucket with “Keep only the last version” and hit the original unversioned-only guard. Official docs confirm this is lifecycle cleanup (previous versions hidden for one day before deletion), not disabled versioning. Adapted storage to accept Enabled/Suspended versioning, verify version-list permissions read-only, and permanently remove every data version/delete marker for an exact DB-recorded key. Gather pagination before deletes, filter exact key, bound listing/counts, verify absence, and preserve failed/deleting state on retention/permission/incomplete cleanup. Purge an unaccepted target's old versions before restart replacement; no new schema needed.
+
+Normal completion pacing now includes nonnegative uniform additive jitter, configurable through CHAPTER_REQUEST_JITTER_SECONDS, defaulting to 25% of the base delay. Base=60 therefore means a 60–75 second persisted completion gap by default. No existing minimum, Retry-After deadline, or rate history is shortened. Connection retry backoff also uses additive jitter.
+
+All 56 isolated tests pass, including paginated exact-key version/delete-marker removal, partial failures/idempotence, incomplete removal, restart replacement, permission/error redaction, and jitter boundary/persistence checks. Setup/design docs updated. No live upload or deletion performed; read-only provider permissions check is being recorded separately.
+
+Read-only Backblaze GetBucketVersioning/ListObjectVersions permission check passed after rerunning outside network sandbox. No objects were uploaded or deleted, no private settings were changed, and no live consumer/web service was started. Migration consistency and diff checks pass.

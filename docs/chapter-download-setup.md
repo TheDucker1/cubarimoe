@@ -34,7 +34,7 @@ Required fields:
 | `CHAPTER_MASTER_PASSWORD` | Strong private password of at least 16 characters |
 | `CHAPTER_KDF_SALT` | Base64-encoded random bytes, at least 16 decoded bytes; preserve permanently |
 | `CHAPTER_S3_ENDPOINT_URL` | HTTPS endpoint without embedded credentials, query, or fragment |
-| `CHAPTER_S3_BUCKET` | Private, unversioned bucket with no retention lock |
+| `CHAPTER_S3_BUCKET` | Private bucket; versioned or unversioned, with no retention preventing deletion |
 | `CHAPTER_S3_ACCESS_KEY_ID`, `CHAPTER_S3_SECRET_ACCESS_KEY` | Credentials limited to this bucket/prefix |
 | `CHAPTER_S3_REGION` | Region string accepted by the provider for SigV4 signing |
 | `CHAPTER_S3_ADDRESSING_STYLE` | `path` or `virtual`, according to the provider |
@@ -57,10 +57,13 @@ Request pacing defaults to a two-second gap after completion, one request per tw
 | Setting | Meaning |
 | --- | --- |
 | `CHAPTER_REQUEST_DELAY_SECONDS` | Minimum wait after each worker upstream request finishes, including metadata, redirects, retries, and image pages. Finite number, minimum 1 second. |
+| `CHAPTER_REQUEST_JITTER_SECONDS` | Additional random wait in `[0, jitter]`; default 25% of the configured base delay. Finite, nonnegative; 0 disables it. |
 | `CHAPTER_REQUEST_TIMEOUT_SECONDS` | Connect/read timeout for worker HTTP and storage requests; 1–300 seconds inclusive. This is not a whole-chapter deadline; read timeout measures inactivity. |
 | `CHAPTER_MAX_RETRIES` | Failed-request attempt budget, including the first attempt; 3 means up to two retries. Positive integer, maximum 10. |
 | `CHAPTER_MAX_BULK_ITEMS` | Maximum chapter identities per management API submission, not parallel downloads; maximum 1000. |
 | `CHAPTER_REQUEST_RATE_LIMITS` | All `[request count, seconds]` budgets apply together globally and per host. Positive pairs with increasing counts and intervals. `[[1, 2], [300, 3600]]` means at most one request per two seconds and 300 per hour. |
+
+A 60-second completion gap defaults to 0–15 seconds of additive jitter, so each persisted completion gap is 60–75 seconds. To choose explicitly, add `"CHAPTER_REQUEST_JITTER_SECONDS": 15`. Randomness never shortens the minimum delay or resets limiter/cooldown history. Huey schedules work and PyrateLimiter enforces budgets; application-level completion jitter is added explicitly.
 
 A 60-second completion gap and the default rate pairs are compatible. The gap makes actual throughput roughly at most 60 requests per hour before request durations/backoff, so the 300/hour ceiling is normally inactive. A timeout of 300 is valid and does not add a delay to successful requests.
 
@@ -86,7 +89,11 @@ The web server defaults to `0.0.0.0:8010`; use `--bind` to change it. Replace th
 
 The foreground launcher starts one Huey worker and one Django web process, and forwards their logs to the same terminal. Ctrl+C or SIGTERM stops both. If either child exits, it stops the other and returns a failure status so a service manager can restart the pair. It gives shutdown up to 30 seconds before terminating remaining children; unfinished jobs recover on the next start. A launcher lock prevents starting a second combined service; Huey's existing worker lock separately prevents a second download consumer.
 
-Ordinary startup checks configuration and applies migrations without contacting S3. `setup` verifies S3, and the worker verifies storage before any upstream download. This permits cached chapter reading during a storage outage. The bucket must grant GetBucketVersioning plus GetObject/PutObject/DeleteObject for the configured prefix. Versioned or suspended buckets are rejected; single-object uploads and permanent deletion are supported.
+Ordinary startup checks configuration and applies migrations without contacting S3. `setup` verifies S3, and the worker verifies storage before any upstream download. This permits cached chapter reading during a storage outage. The bucket must grant GetBucketVersioning plus GetObject/PutObject/DeleteObject for the configured prefix. Versioned/suspended buckets additionally need ListBucketVersions and DeleteObjectVersion (the provider’s equivalent permissions). The read-only diagnostic also checks version-list access. Single-object uploads and permanent deletion are supported.
+
+Backblaze B2 keeps versioning enabled; “Keep only the last version” is a lifecycle rule, not disabled versioning. Version-aware cleanup lists every data version and delete marker for the exact recorded object key, deletes each by VersionId, and confirms none remain. Prefix lookalikes are never removed. Retries repeat remaining cleanup safely. Before replacing an unaccepted target after restart, old versions at that target are purged. Lifecycle settings need not be changed. Retention/permission failures leave the job failed/deleting for explicit retry, never reported as removed.
+
+See [Backblaze lifecycle rules](https://www.backblaze.com/docs/cloud-storage-lifecycle-rules) and [S3 Delete Object](https://www.backblaze.com/apidocs/s3-delete-object) for provider semantics.
 
 The current launcher uses the existing Django development server with DEBUG disabled, `--noreload`, and `--insecure` to serve local static files. This is the local single-user/VPN setup. Public deployment should replace that web-server component with a production WSGI/static setup. Never use test settings to serve real traffic.
 

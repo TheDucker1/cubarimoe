@@ -127,7 +127,7 @@ Fetch one page completely before requesting the next. Validate HTTP status, imag
 
 After a restart, every unfinished non-terminal job restarts its whole operation. A download begins again at page one, including a task interrupted during upload. A deletion retries its whole idempotent deletion operation. There is no page checkpoint, partial CBZ recovery, upload continuation, or adoption of an unaccepted uploaded object. Queue state, retry counts, and cooldown deadlines survive. A web reload alone does not restart the separate worker or its active job.
 
-If upload succeeds but the process exits before the acceptance transaction, restart the task and overwrite the same recorded target object. Each new encryption uses a fresh nonce. The object stays unavailable to the reader until accepted. For initial deployment, use versioning-disabled storage or a dedicated versioning-disabled bucket, and single-object uploads within the configured archive limit. This keeps overwrite/deletion semantics simple. An attempt that is cancelled or terminally fails must remove any unaccepted target object; record cleanup as a persistent deletion job if that operation fails. Versioned buckets and multipart uploads require extra cleanup behavior and are deferred until specifically required by the provider.
+If upload succeeds but the process exits before the acceptance transaction, restart the task and overwrite the same recorded target object. Each new encryption uses a fresh nonce. The object stays unavailable to the reader until accepted. Use single-object uploads within the configured archive limit. Support unversioned buckets and versioned providers such as Backblaze B2. On a versioned target, purge old unaccepted versions before replacement, then upload; the persisted target remains the same. An attempt that is cancelled or terminally fails must remove any unaccepted target object; record cleanup as a persistent deletion job if that operation fails. Version-aware cleanup is implemented because Backblaze B2 requires it; multipart uploads remain deferred.
 
 Use low-level sequential object operations or explicitly disable SDK transfer concurrency. No automatic background download thread per request.
 
@@ -135,7 +135,7 @@ Use low-level sequential object operations or explicitly disable SDK transfer co
 
 Use one worker-wide upstream request gate backed by PyrateLimiter, plus persisted completion-delay and cooldown deadlines. Count metadata requests, images, redirects, retries, and any external image-proxy requests toward the sequential policy. Account for requests issued inside source adapters. Redirects and automatic HTTP retries must pass the same gate; default library behavior must not bypass it.
 
-- Configurable delay after each request finishes; proposed initial default: two seconds.
+- Configurable minimum delay after each request finishes, plus nonnegative additive uniform jitter. Initial base default: two seconds, jitter defaults to 25% of the base. Persist the sampled completion deadline; never shorten it on restart.
 - Honor `Retry-After` on 429; otherwise use increasing backoff with jitter and a bounded attempt count.
 - Pause immediately on 403 or a source-level blocking response; require explicit user retry. Honor 429 cooldowns and pause after the bounded retry budget rather than hammering the upstream.
 - Timeouts and per-image/per-chapter size limits prevent unbounded jobs.
@@ -175,7 +175,7 @@ Delete remote objects, then local cache, then finalize deleted state. Treat an a
 
 After deletion completes, fresh chapter responses use upstream URLs. Requests to stale local URLs return a clear missing/unavailable response, without silently fetching upstream. Use short-lived availability metadata or explicit frontend refresh so previous API caches do not keep advertising deleted archives.
 
-Initial deployment uses versioning-disabled objects: delete the accepted object and any recorded unaccepted target for that chapter. Treat missing objects as success. If the selected provider requires bucket versioning or retention, revisit permanent deletion before enabling the feature; a delete marker is not permanent removal of old versions.
+Delete the accepted object and every recorded unaccepted target for the chapter. On unversioned storage use ordinary delete; on versioned/suspended storage list all data versions and delete markers for each exact key, gather pagination before modifying it, delete by explicit VersionId, and verify the exact key is absent. Treat an absent key as success. Never delete neighboring prefix-matching keys or claim success while retained versions remain. Listing/count bounds prevent runaway cleanup. Retention protections are not bypassed.
 
 ## Backend API additions
 
@@ -251,7 +251,7 @@ Configuration is validated at startup, loaded from an owner-only JSON file selec
 | `SECRET_KEY` | Required private Django signing/session secret |
 | `CHAPTER_MASTER_PASSWORD`, `CHAPTER_KDF_SALT` | Required password and persistent base64 installation salt |
 | `CHAPTER_KDF_N`, `CHAPTER_KDF_R`, `CHAPTER_KDF_P` | Validated scrypt parameters; 32768, 8, 1 |
-| `CHAPTER_S3_ENDPOINT_URL`, `CHAPTER_S3_BUCKET` | Required HTTPS provider endpoint and unversioned private bucket |
+| `CHAPTER_S3_ENDPOINT_URL`, `CHAPTER_S3_BUCKET` | Required HTTPS provider endpoint and private bucket (versioned or unversioned) |
 | `CHAPTER_S3_ACCESS_KEY_ID`, `CHAPTER_S3_SECRET_ACCESS_KEY` | Required private credentials |
 | `CHAPTER_S3_REGION`, `CHAPTER_S3_ADDRESSING_STYLE` | Required provider region and `path`/`virtual` style |
 | `CHAPTER_S3_PREFIX` | `objects`; generic namespace, with opaque extensionless random object names |
@@ -261,11 +261,12 @@ Configuration is validated at startup, loaded from an owner-only JSON file selec
 | `CHAPTER_CACHE_MAX_BYTES` | Required disk byte budget |
 | `CHAPTER_MAX_ARCHIVE_BYTES`, `CHAPTER_MAX_IMAGE_BYTES` | Required finite limits; archive at most 512 MiB |
 | `CHAPTER_REQUEST_DELAY_SECONDS` | Two seconds after completion; minimum one |
+| `CHAPTER_REQUEST_JITTER_SECONDS` | Additive random range; default 25% of base delay; nonnegative |
 | `CHAPTER_REQUEST_RATE_LIMITS` | `[[1, 2], [300, 3600]]`; persisted PyrateLimiter budgets |
 | `CHAPTER_REQUEST_TIMEOUT_SECONDS`, `CHAPTER_MAX_RETRIES` | 30 seconds, three attempts |
 | `CHAPTER_MAX_BULK_ITEMS` | 100; larger frontend selections use sequential batches |
 
-Fixed initial policies: two-second polling, one archive decryption per web process, one thread worker with an exclusive local lock, single-object uploads, permanent deletion in an unversioned bucket, and staff-session authentication plus CSRF for management. Reading follows the existing reader boundary. These policies do not have placeholder settings requiring later decisions. `DEBUG=True` is refused while private configuration is loaded.
+Fixed initial policies: two-second polling, one archive decryption per web process, one thread worker with an exclusive local lock, single-object uploads, permanent exact-key deletion, including all versions/delete markers on versioned storage, and staff-session authentication plus CSRF for management. Reading follows the existing reader boundary. These policies do not have placeholder settings requiring later decisions. `DEBUG=True` is refused while private configuration is loaded.
 
 Storage permissions need object read/write/delete for the configured prefix. Validate that the initial provider supports the selected single-object upload size and simple overwrite/delete semantics. Keep TLS verification enabled. Add startup validation and a read-only diagnostic command so incorrect credentials, salt encoding, cache permissions, or unsupported configuration fail clearly.
 
@@ -284,7 +285,7 @@ Test failures and limits, not just the happy path. Initial rollout should use on
 
 The architecture is concluded. Compatible dependency pins and source integration are implemented. Remaining deployment work is supplying private values and checking the actual provider, browser flow, and one small chapter before broader use.
 
-- User supplies S3 provider, endpoint, bucket, credentials, and addressing style later. Initial storage uses versioning disabled and no retention lock; revisit only if provider constraints require it.
+- User supplies S3 provider, endpoint, bucket, credentials, and addressing style later. Backblaze B2 compatibility includes version-aware permanent deletion; do not configure retention that prevents requested removal.
 - Set finite RAM/archive/image limits and a disk byte cap after checking deployment resources. File-count default remains 20; polling interval remains two seconds.
 - Audit existing source adapters for sequential resolution and test each supported source against a fake upstream before live use. Start with a two-second completion gap, configurable per deployment, and pause on blocking responses.
 - Keep the existing single-user access boundary. Mutating download/delete/clear actions require an explicit authenticated session by default; existing reading access need not change.
@@ -311,3 +312,5 @@ Cleanup tasks have priority alongside remote deletion. Cancellation still finish
 The existing browser save-to-device implementation remains separate. Stored pages use ordinary local image URLs compatible with the reader. Metadata availability responses are private and uncached so deletion cannot leave shared caches advertising stale local URLs.
 
 Tests use isolated configuration, fake transport/storage, and Botocore Stubber. No live S3 permissions, provider transfer/deletion behavior, browser interaction, or live compatibility of each legacy source has been verified. Setup and the initial small-chapter check remain required before production use.
+
+Backblaze references: [lifecycle rules](https://www.backblaze.com/docs/cloud-storage-lifecycle-rules), [Get Bucket Versioning](https://www.backblaze.com/apidocs/s3-get-bucket-versioning), [List Object Versions](https://www.backblaze.com/apidocs/s3-list-object-versions), and [Delete Object](https://www.backblaze.com/apidocs/s3-delete-object).

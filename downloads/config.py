@@ -31,6 +31,7 @@ class Configuration:
     cache_max_bytes: int
     cache_max_files: int = 20
     delay: float = 2.0
+    jitter: float = 0.5
     timeout: float = 30.0
     max_retries: int = 3
     poll_seconds: int = 2
@@ -123,6 +124,10 @@ def load_configuration(base_dir, environ=None):
         delay = float(values.get(field_name, 2))
         if not math.isfinite(delay) or delay < 1:
             invalid(field_name, "must be a finite number of at least 1 second.")
+        field_name = "CHAPTER_REQUEST_JITTER_SECONDS"
+        jitter = float(values.get(field_name, delay * 0.25))
+        if not math.isfinite(jitter) or jitter < 0:
+            invalid(field_name, "must be a finite nonnegative number.")
         field_name = "CHAPTER_REQUEST_TIMEOUT_SECONDS"
         timeout = float(values.get(field_name, 30))
         if not math.isfinite(timeout) or not 1 <= timeout <= 300:
@@ -159,7 +164,7 @@ def load_configuration(base_dir, environ=None):
             max_image_bytes=integer("CHAPTER_MAX_IMAGE_BYTES"),
             cache_max_bytes=integer("CHAPTER_CACHE_MAX_BYTES"),
             cache_max_files=integer("CHAPTER_CACHE_MAX_FILES", 20),
-            delay=delay, timeout=timeout, max_retries=integer("CHAPTER_MAX_RETRIES", 3),
+            delay=delay, jitter=jitter, timeout=timeout, max_retries=integer("CHAPTER_MAX_RETRIES", 3),
             max_bulk_items=integer("CHAPTER_MAX_BULK_ITEMS", 100),
             scrypt_n=n, scrypt_r=r, scrypt_p=p, rate_limits=rates,
         )
