@@ -206,6 +206,8 @@ Bulk submissions create one independent job per selected chapter/group and remai
 
 ## Frontend changes
 
+Implemented presentation: series controls use the existing icon font/theme, compact selection and bulk actions, with stored markers and per-row progress. Detailed jobs and cache maintenance appear on the dedicated queue page. The reader exposes current-chapter storage through an initially closed toolbar dialog; its reading canvas/description contains no queue table. Known download page totals produce determinate progress; other active phases remain indeterminate. Original save-to-device controls remain separate.
+
 - Add a server-download action to each chapter row, including an explicit group choice when needed.
 - Add checkboxes, select-all-visible, select-all-series, clear selection, and selected-item counts. Clearly distinguish filtered/visible rows from every chapter in the series.
 - Add Download selected/all and Remove downloaded selected/all actions. Download all uses an explicit group policy, never every translation group implicitly. Disable ineligible actions and report skipped/already-ready items.

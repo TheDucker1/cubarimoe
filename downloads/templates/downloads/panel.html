@@ -1,37 +1,40 @@
 {% load static %}
 {% if user.is_staff %}
-<section class="chapter-downloads" data-source="{{ download_source }}" data-series="{{ download_series }}" aria-label="Stored chapter downloads">
+{% if download_mode == "reader" %}<dialog class="chapter-downloads d-dialog Loda" aria-labelledby="d-dialog-title"{% else %}<section class="chapter-downloads"{% endif %} data-source="{{ download_source }}" data-series="{{ download_series }}" aria-label="Stored chapter downloads">
   <form hidden>{% csrf_token %}</form>
-  <h3>Stored chapters</h3>
-  <div class="d-selection-controls">
-    <label>Translation group <select class="d-group" aria-label="Translation group"></select></label>
-    <button type="button" class="d-visible">Select visible</button>
-    <button type="button" class="d-all">Select all chapters</button>
-    <button type="button" class="d-clear-selection">Clear selection</button>
+  {% if download_mode == "reader" %}
+  <header><h3 id="d-dialog-title">Chapter storage</h3><button type="button" class="ico-btn d-close" aria-label="Close">&#xe907;</button></header>
+  <div class="d-reader-controls">
+    <button type="button" class="d-current-download d-action"><span class="d-icon">&#xe938;</span>Store chapter</button>
+    <button type="button" class="d-current-remove d-action"><span class="d-icon">×</span>Remove stored chapter</button>
+    <span class="d-current-status"></span><progress class="d-current-progress" hidden aria-label="Chapter storage progress"></progress>
+  </div>
+  {% else %}
+  {% if download_mode != "queue" %}
+  <div class="d-selection-controls d-toolbar">
+    <select class="d-group" aria-label="Translation group"></select>
+    <button type="button" class="d-visible d-action" title="Select visible chapters">Select visible</button>
+    <button type="button" class="d-all d-action" title="Select all chapters, including filtered chapters">Select all</button>
+    <button type="button" class="d-clear-selection ico-btn" title="Clear selection" aria-label="Clear selection">&#xe907;</button>
     <span class="d-count">0 selected</span>
-    <button type="button" class="d-download" disabled>Download selected</button>
-    <button type="button" class="d-remove" disabled>Remove downloaded selected</button>
+    <button type="button" class="d-download ico-btn" title="Store selected chapters on server" aria-label="Store selected chapters on server" disabled><span class="d-icon">&#xe938;</span></button>
+    <button type="button" class="d-remove ico-btn" title="Remove selected stored chapters" aria-label="Remove selected stored chapters" disabled>×</button>
   </div>
-  <div class="d-reader-controls" hidden>
-    <button type="button" class="d-current-download">Store current chapter</button>
-    <button type="button" class="d-current-remove">Remove stored chapter</button>
-  </div>
-  <p class="d-message" role="status" aria-live="polite"></p>
+  {% endif %}
   <div class="d-queue-summary" role="status" aria-live="polite"></div>
-  <ul class="d-queue"></ul>
-  <details class="d-maintenance">
-    <summary>Local archive cache</summary>
-    <p class="d-cache-usage"></p>
-    <button type="button" class="d-clear-cache">Clear all local archive cache</button>
-    <p>This keeps your stored chapters. They will be fetched from storage again when needed.</p>
-  </details>
-  <a href="{% url 'download-queue' %}">Open download queue</a>
-</section>
-{% else %}
+  {% if download_mode == "queue" %}<ul class="d-queue"></ul>
+  <details class="d-maintenance"><summary>Local archive cache</summary>
+    <p class="d-cache-usage"></p><button type="button" class="d-clear-cache d-action">Clear cache</button>
+    <p>Stored chapters remain in remote storage.</p>
+  </details>{% endif %}
+  {% endif %}
+  <p class="d-message" role="status" aria-live="polite"></p>
+  {% if download_mode != "queue" %}<a class="d-queue-link" href="{% url 'download-queue' %}">Download queue ↗</a>{% endif %}
+{% if download_mode == "reader" %}</dialog>{% else %}</section>{% endif %}
+{% elif download_mode != "reader" %}
 <p><a href="/admin/login/?next={{ request.path|urlencode }}">Sign in</a> to manage stored chapters.</p>
 {% endif %}
-<p class="stored-chapter-error" hidden role="alert">A stored image could not be loaded. Check storage configuration or refresh the chapter.
-{% if user.is_staff %}<a class="d-source-fallback" href="#">Read from source instead</a> (contacts the upstream source).{% endif %}
-</p>
-<link rel="stylesheet" href="{% static 'downloads/downloads.css' %}">
-<script defer src="{% static 'downloads/downloads.js' %}"></script>
+<p class="stored-chapter-error" hidden role="alert">A stored image could not be loaded. Refresh the chapter or check storage.
+{% if user.is_staff %}<a class="d-source-fallback" href="#">Read from source instead</a> (contacts the upstream source).{% endif %}</p>
+<link rel="stylesheet" href="{% static 'downloads/downloads.css' %}?v=2">
+<script defer src="{% static 'downloads/downloads.js' %}?v=2"></script>

@@ -1,7 +1,7 @@
 {% extends 'layout.html' %}
 {% block body %}
-<main class="container mt-4">
+<main class="d-queue-page">
   <h1>Chapter download queue</h1>
-  {% include 'downloads/panel.html' %}
+  {% include 'downloads/panel.html' with download_mode='queue' %}
 </main>
 {% endblock %}

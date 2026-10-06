@@ -98,3 +98,16 @@ Normal completion pacing now includes nonnegative uniform additive jitter, confi
 All 56 isolated tests pass, including paginated exact-key version/delete-marker removal, partial failures/idempotence, incomplete removal, restart replacement, permission/error redaction, and jitter boundary/persistence checks. Setup/design docs updated. No live upload or deletion performed; read-only provider permissions check is being recorded separately.
 
 Read-only Backblaze GetBucketVersioning/ListObjectVersions permission check passed after rerunning outside network sandbox. No objects were uploaded or deleted, no private settings were changed, and no live consumer/web service was started. Migration consistency and diff checks pass.
+
+
+## Follow-up: frontend styling and reader focus
+
+Completed frontend-only redesign. Shared controls use the existing guya icon font, site colors, reader theme variables, compact buttons and native checkboxes/selects. Series rows have icon storage/removal actions, small stored-state markers and page progress. The series toolbar retains visible/all/clear selection and bulk download/remove; queue details and cache maintenance live on `/downloads/`.
+
+The chapter reader no longer embeds management beside its description. Staff get a toolbar storage icon (S badge distinguishes server storage from the existing device downloader), opening an initially closed native dialog with current chapter actions/progress and queue link. Escape, close button and backdrop click close it; dialog key events do not propagate to reader navigation. Native modal focus management is retained. Original browser downloader and backend are unchanged.
+
+Polling remains two seconds while active, without overlap, hidden-tab polling or upstream status requests. Progress is determinate only when downloading with a known page count; waiting/other active phases are indeterminate. Latest chapter job selection compares numeric job IDs, since snapshot active/history ordering differs. Errors remain visible and queue retry/cancel controls have accessible labels.
+
+Verification: all 56 isolated backend tests pass; `node downloads/tests/frontend.js` verifies reader popup/progress, latest-job selection, bulk visible/all selection and CSRF requests, and queue controls using isolated DOM/API doubles. Three template modes rendered with isolated test configuration and confirmed the reader excludes queue/cache details. JavaScript syntax and diff whitespace checks pass. No browser binary is installed, so actual browser visual inspection remains outstanding. No live service restart, upstream/S3 requests, runtime changes, credentials, or backend edits occurred.
+
+Security clarification: browser chapter SHA-256 identifiers are stable public identities, not secrets or authorization tokens. Stored reading follows the existing public reader boundary; management requires staff session/CSRF. AES-256-GCM keys stay server-side, derived through scrypt/HKDF from the configured master secret. Random 256-bit S3 object names are independent of public chapter IDs. Strong generated master passwords resist guessing; hashing a chapter identity alone does not provide private reading access.

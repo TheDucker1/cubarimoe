@@ -58,7 +58,8 @@
             <button data-bind='vol_next' class="rdr-selector-vol ico-btn prev"
               data-tip="Previous volume"></button>
             <div class="flex-spacer" data-bind='message'></div>
-            <button data-bind="download_chapter" class="ico-btn download"></button>
+            <button data-bind="download_chapter" class="ico-btn download" title="Download chapter to this device"></button>
+            {% if user.is_staff %}<button type="button" class="ico-btn d-open" title="Server chapter storage" aria-label="Server chapter storage" aria-haspopup="dialog"><span class="d-icon">&#xe938;</span><small>S</small></button>{% endif %}
             <div class="download-anchor">
               <div class="download-wrapper hidden" data-bind="download_wrapper">
                 <button data-bind="downloading_chapter" class="ico-btn downloading" disabled></button>
@@ -106,7 +107,6 @@
           </div>
         </section>
         <section class="rdr-description">
-          {% include "downloads/panel.html" %}
           <div data-bind="image_description">
           </div>
         </section>
@@ -148,6 +148,7 @@
       <div class="ico-btn" data-bind="zoom_level_minus"></div>
     </div>
   </main>
+  {% include "downloads/panel.html" with download_mode="reader" %}
   <div class="Tooltippy"></div>
   <div class="Tooltippy Error"></div>
   <div class="LodaManager hidden" tabindex="-1">

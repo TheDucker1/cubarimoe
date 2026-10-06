@@ -23,6 +23,7 @@
     const rows = Array.from(document.querySelectorAll("#chapterTable tr[data-chapter]"));
     let catalog = {groups: {}, downloads: {}};
     let statuses = new Map();
+    let jobs = new Map();
     let timer = null;
     let polling = false;
     let active = false;
@@ -60,6 +61,7 @@
     }
 
     function updateSelection() {
+        if (!get("selection-controls")) return;
         const selected = selectedRows();
         get("count").textContent = `${selected.length} selected`;
         get("download").disabled = submitting || !selected.some(row => {
@@ -74,9 +76,12 @@
             const item = rowSelection(row);
             const status = row.querySelector(".d-chapter-status");
             if (!status) return;
-            status.textContent = item ?
-                ({ready: "Stored", deleting: "Removing", missing: ""}[statuses.get(item.key)] || "") :
-                "Selected group unavailable";
+            const state = item && statuses.get(item.key);
+            const job = item && jobs.get(item.key);
+            status.textContent = state === "ready" ? "✓" : state === "deleting" ? "…" : !item ? "—" : "";
+            status.title = state === "ready" ? "Stored" : state === "deleting" ? "Removing" : !item ? "Group unavailable" : "";
+            const progress = row.querySelector("progress");
+            showProgress(progress, job);
             row.querySelector(".d-row-download").disabled = submitting || !item || ["ready", "deleting"].includes(statuses.get(item.key));
             row.querySelector(".d-row-remove").disabled = submitting || !item || statuses.get(item.key) !== "ready";
         });
@@ -95,6 +100,7 @@
         if (removing && !window.confirm(`Permanently remove ${keys.length} stored chapter(s) for the selected group from storage?`)) return;
         submitting = true;
         updateSelection();
+        updateCurrent();
         const results = [];
         try {
             for (let i = 0; i < keys.length; i += maxBulk) {
@@ -114,7 +120,7 @@
             active = true;
             await poll();
         } catch (error) { message(error.message); }
-        finally { submitting = false; updateSelection(); }
+        finally { submitting = false; updateSelection(); updateCurrent(); }
     }
 
     function bulk(removing) {
@@ -131,25 +137,37 @@
         statuses = new Map(data.chapters.map(item => [item.chapter_key, item.status]));
         maxBulk = data.max_bulk_items;
         active = data.active;
-        get("queue-summary").textContent = `${data.jobs.filter(j => !["accepted", "failed", "cancelled"].includes(j.state)).length} pending · ` +
-            `${data.counts.accepted} completed · ${data.counts.failed} failed` +
-            (data.paused ? " · Upstream paused; explicit retry is required." : "");
-        get("queue").replaceChildren();
-        data.jobs.forEach(job => {
+        jobs = new Map();
+        // Active jobs and recent history have different ordering; compare IDs.
+        data.jobs.forEach(job => { if (!jobs.has(job.key) || job.id > jobs.get(job.key).id) jobs.set(job.key, job); });
+        if (get("queue-summary")) get("queue-summary").textContent =
+            `${data.jobs.filter(j => !["accepted", "failed", "cancelled"].includes(j.state)).length} queued · ${data.counts.accepted} stored · ${data.counts.failed} failed` +
+            (data.paused ? " · Upstream paused; retry required." : "");
+        if (get("queue")) get("queue").replaceChildren();
+        if (get("queue"))         data.jobs.forEach(job => {
             const li = document.createElement("li");
             const title = document.createElement("span");
             let phase = job.state === "accepted" ? "Completed" : job.state;
             if (job.state === "downloading") phase = `Downloading ${job.pages}/${job.total_pages} pages`;
             if (job.state === "cooldown" && job.next_attempt) phase = `Cooling down until ${new Date(job.next_attempt).toLocaleTimeString()}`;
-            title.textContent = `${job.title || job.series} · Ch. ${job.chapter} · ${job.group} · ${job.kind}: ${phase}` +
-                (job.queue_position ? ` (queue ${job.queue_position})` : "") + (job.error ? ` — ${job.error}` : "");
-            if (job.bytes) title.textContent += ` · ${(job.bytes / 1048576).toFixed(1)} MB`;
-            li.appendChild(title);
+            title.textContent = `${job.title || job.series} · Ch. ${job.chapter}`;
+            const detail = document.createElement("small");
+            detail.textContent = `${job.group} · ${job.kind}: ${phase}` + (job.queue_position ? ` · #${job.queue_position}` : "");
+            const info = document.createElement("div"); info.className = "d-job-info";
+            info.append(title, detail);
+            const progress = document.createElement("progress");
+            progress.setAttribute("aria-label", `Chapter ${job.chapter}: ${phase}`);
+            showProgress(progress, job); info.append(progress);
+            if (job.error) { const error = document.createElement("small"); error.className = "d-job-error"; error.textContent = job.error; info.append(error); }
+            li.appendChild(info);
             if (job.state === "failed" || (!["accepted", "cancelled"].includes(job.state) && job.kind === "download")) {
                 const button = document.createElement("button");
                 const action = job.state === "failed" ? "retry" : "cancel";
-                button.textContent = job.cancel_requested ? "Cancelling…" : action === "retry" ? "Retry" : "Cancel";
-                button.disabled = job.cancel_requested;
+                button.className = "ico-btn d-job-action";
+                button.textContent = action === "retry" ? "↻" : "×";
+                button.title = job.cancel_requested && action === "cancel" ? "Cancelling…" : action === "retry" ? "Retry" : "Cancel";
+                button.setAttribute("aria-label", button.title);
+                button.disabled = action === "cancel" && job.cancel_requested;
                 button.onclick = async () => {
                     button.disabled = true;
                     try { await api(`/downloads/jobs/${job.id}/${action}/`, {}, "POST"); await poll(); }
@@ -159,8 +177,9 @@
             }
             get("queue").appendChild(li);
         });
-        get("cache-usage").textContent = `${data.cache.files}/${data.cache.max_files} files · ${(data.cache.bytes / 1048576).toFixed(1)} MB`;
+        if (get("cache-usage")) get("cache-usage").textContent = `${data.cache.files}/${data.cache.max_files} files · ${(data.cache.bytes / 1048576).toFixed(1)} MB`;
         updateSelection();
+        updateCurrent();
     }
 
     async function poll() {
@@ -178,13 +197,41 @@
         }
     }
 
+    function showProgress(progress, job) {
+        const running = job && !["accepted", "failed", "cancelled"].includes(job.state);
+        progress.hidden = !running;
+        if (!running) return;
+        progress.title = job.state;
+        if (job.state === "downloading" && job.total_pages > 0) {
+            progress.max = job.total_pages; progress.value = job.pages;
+        } else progress.removeAttribute("value");
+    }
+
+    function currentItem() {
+        if (typeof Reader === "undefined" || !Reader.current || !Reader.SCP) return null;
+        const number = String(Reader.SCP.chapter);
+        return ((Reader.current.downloads || {})[number] || {})[String(Reader.getGroup(number))];
+    }
+
+    function updateCurrent() {
+        if (!isReader) return;
+        const item = currentItem();
+        const state = item && statuses.get(item.key);
+        const job = item && jobs.get(item.key);
+        const busy = job && !["accepted", "failed", "cancelled"].includes(job.state);
+        get("current-download").disabled = submitting || !item || busy || ["ready", "deleting"].includes(state);
+        get("current-remove").disabled = submitting || !item || busy || state !== "ready";
+        get("current-status").textContent = state === "ready" ? "Stored ✓" : state === "deleting" ? "Removing…" : busy ? job.state : job && job.state === "failed" ? "Failed — see download queue" : "";
+        showProgress(get("current-progress"), job);
+    }
+
     async function currentChapter(removing) {
         try {
             // init.js exposes Reader as a global lexical variable, not a window property.
             if (typeof Reader === "undefined" || !Reader.current || !Reader.SCP) throw new Error("Reader is still loading.");
             const number = String(Reader.SCP.chapter);
             const group = String(Reader.getGroup(number));
-            const item = (Reader.current.downloads[number] || {})[group];
+            const item = ((Reader.current.downloads || {})[number] || {})[group];
             if (!item) throw new Error("Current chapter/group is unavailable for storage.");
             await submitKeys([item.key], removing);
         } catch (error) { message(error.message); }
@@ -206,12 +253,13 @@
                     checkbox.onchange = updateSelection;
                     const status = document.createElement("span"); status.className = "d-chapter-status";
                     const store = document.createElement("button");
-                    store.type = "button"; store.className = "d-row-download"; store.textContent = "Store";
+                    store.type = "button"; store.className = "d-row-download ico-btn d-icon"; store.textContent = "\ue938"; store.title = "Store chapter on server"; store.setAttribute("aria-label", store.title);
                     store.onclick = () => { const item = rowSelection(row); if (item) submitKeys([item.key], false); };
                     const remove = document.createElement("button");
-                    remove.type = "button"; remove.className = "d-row-remove"; remove.textContent = "Remove";
+                    remove.type = "button"; remove.className = "d-row-remove ico-btn"; remove.textContent = "×"; remove.title = "Remove stored chapter"; remove.setAttribute("aria-label", remove.title);
                     remove.onclick = () => { const item = rowSelection(row); if (item) submitKeys([item.key], true); };
-                    cell.append(checkbox, status, store, remove); row.prepend(cell);
+                    const progress = document.createElement("progress"); progress.hidden = true; progress.setAttribute("aria-label", `Chapter ${row.dataset.chapter} storage progress`);
+                    cell.append(checkbox, status, store, remove, progress); row.prepend(cell);
                 });
                 const header = document.querySelector("#chapters thead tr");
                 if (header) header.prepend(document.createElement("th"));
@@ -223,14 +271,18 @@
                 get("remove").onclick = () => bulk(true);
             } catch (error) { message(error.message); get("selection-controls").hidden = true; }
         } else {
-            get("selection-controls").hidden = true;
+            if (get("selection-controls")) get("selection-controls").hidden = true;
             if (isReader) {
-                get("reader-controls").hidden = false;
+                const trigger = document.querySelector(".d-open");
+                trigger.onclick = () => { updateCurrent(); root.showModal(); poll(); };
+                get("close").onclick = () => root.close();
+                root.addEventListener("click", event => { if (event.target === root) { const bounds = root.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) root.close(); } });
+                root.addEventListener("keydown", event => event.stopPropagation());
                 get("current-download").onclick = () => currentChapter(false);
                 get("current-remove").onclick = () => currentChapter(true);
             }
         }
-        get("clear-cache").onclick = async () => {
+        if (get("clear-cache")) get("clear-cache").onclick = async () => {
             if (!window.confirm("Clear all local archive cache? Stored chapters will remain in remote storage.")) return;
             try { await api("/downloads/cache/clear/", {}, "POST"); await poll(); }
             catch (error) { message(error.message); }
