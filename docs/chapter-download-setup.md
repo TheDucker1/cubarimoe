@@ -125,3 +125,21 @@ node --check downloads/static/downloads/downloads.js
 Test settings generate ephemeral secrets and isolated SQLite/runtime directories. Tests use fake image transport and object storage, so they do not touch the real bucket or upstream image hosts. They verify request timestamps, retry/redirect gating, persistent cooldowns, encryption authentication, acceptance/cancellation races, deletion, LRU behavior, and authenticated APIs.
 
 Configuration can be verified locally, but actual provider behavior cannot be confirmed until the user supplies storage configuration. No live remote archive download/upload/delete is required to run this test suite.
+
+
+## Browsing downloaded chapters and applying code updates
+
+Sign in with your staff account and open `/library/` (the “Downloaded chapters” link in the site navigation, reader storage dialog, or queue page). Titles expand to show only ready stored chapters and translation groups. Search filters stored titles. Select all includes chapters under collapsed titles in the current search results; clear selection and bulk removal use the existing persistent deletion queue. Failed removal requests retain selection. Accepted removal requests disappear from this view; the queue reports actual completion/errors. Refresh the library to discover newly completed downloads.
+
+Library chapter links open the original reader through `/library/read/<anchor-key>/<chapter>/<page>/`. Metadata comes from SQLite only, includes only stored chapters for that translation group, and uses local image URLs. No cover/source refresh is performed. Stale or missing cached source metadata cannot hide an otherwise ready stored chapter. The reader's title link returns to the library. `?upstream=1` cannot switch these routes to source reading; the source-fallback link is omitted. The normal series reader is unchanged. Library management requires staff login; stored reading retains the application's existing public reading boundary.
+
+This update adds no dependency, configuration, or database migration. The service runs without automatic code reload. After updating the checkout, activate the new code with:
+
+```bash
+sudo systemctl restart cubarimoe.service
+sudo systemctl status cubarimoe.service --no-pager
+```
+
+Use `sudo journalctl -u cubarimoe.service -f` for logs. `daemon-reload` is needed only after changing the systemd unit, not after ordinary application-code updates. The persistent queue survives restart; an unfinished chapter restarts from the beginning. Existing configured delays/rate-limit history remain in effect. If running directly in a terminal, stop `./service` with Ctrl+C and start `./service` again. Hard-refresh the browser after restarting if it keeps older styling.
+
+Additional isolated checks: `node downloads/tests/frontend.js` and `node downloads/tests/library_frontend.js`.

@@ -6,7 +6,7 @@ from functools import wraps
 from django.conf import settings
 from django.db.models import Sum
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_variables
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
@@ -169,3 +169,49 @@ def image(request, chapter_key, version, page):
 @require_GET
 def queue_page(request):
     return render(request, "downloads/queue.html")
+
+
+@staff_api
+@require_GET
+def library_page(request):
+    from .library import library_titles
+    query = request.GET.get("q", "").strip()[:200]
+    return render(request, "downloads/library.html", {
+        "titles": library_titles(query), "query": query,
+        "max_bulk_items": settings.CHAPTER_CONFIG.max_bulk_items,
+        "page_title": "Downloaded chapters",
+    })
+
+
+@never_cache
+@require_GET
+def library_series(request, chapter_key):
+    from .library import stored_series
+    _, data = stored_series(chapter_key)
+    return JsonResponse(data)
+
+
+@never_cache
+@require_GET
+def library_reader(request, chapter_key, chapter, page):
+    from django.http import Http404
+    from .identity import chapter_number
+    from .library import stored_series
+    anchor, data = stored_series(chapter_key)
+    number = chapter_number(chapter)
+    if number not in data["chapters"] or page < 1:
+        raise Http404("Chapter is not stored for this group.")
+    data.update({
+        "series_name": data["title"], "chapter_number": number,
+        "api_path": "/library/api/series/", "image_proxy_url": "",
+        "download_source": anchor.source, "download_series": anchor.series,
+        "stored_library": True, "version_query": settings.STATIC_VERSION,
+        "relative_url": "/library/read/" + chapter_key,
+        "reader_modifier": "library/read",
+    })
+    return render(request, "reader/reader.html", data)
+
+
+@require_GET
+def library_return(request, chapter_key):
+    return redirect("download-library")

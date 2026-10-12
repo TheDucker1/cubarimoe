@@ -71,4 +71,5 @@ async function scenario(mode) {
         assert.equal(elements.queue.children[1].children[1].title, 'Retry');
     }
 }
-(async () => { for (const mode of ['reader', 'series', 'queue']) await scenario(mode); console.log('Reader popup, latest-job progress, bulk selection/CSRF and queue controls passed.'); })().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = {Element};
+if (require.main === module) (async () => { for (const mode of ['reader', 'series', 'queue']) await scenario(mode); console.log('Reader popup, latest-job progress, bulk selection/CSRF and queue controls passed.'); })().catch(error => { console.error(error); process.exitCode = 1; });

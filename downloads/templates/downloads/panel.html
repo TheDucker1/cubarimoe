@@ -29,12 +29,13 @@
   </details>{% endif %}
   {% endif %}
   <p class="d-message" role="status" aria-live="polite"></p>
+  <a class="d-queue-link" href="{% url 'download-library' %}">Downloaded chapters ↗</a>
   {% if download_mode != "queue" %}<a class="d-queue-link" href="{% url 'download-queue' %}">Download queue ↗</a>{% endif %}
 {% if download_mode == "reader" %}</dialog>{% else %}</section>{% endif %}
 {% elif download_mode != "reader" %}
 <p><a href="/admin/login/?next={{ request.path|urlencode }}">Sign in</a> to manage stored chapters.</p>
 {% endif %}
 <p class="stored-chapter-error" hidden role="alert">A stored image could not be loaded. Refresh the chapter or check storage.
-{% if user.is_staff %}<a class="d-source-fallback" href="#">Read from source instead</a> (contacts the upstream source).{% endif %}</p>
-<link rel="stylesheet" href="{% static 'downloads/downloads.css' %}?v=2">
+{% if user.is_staff and not stored_library %}<a class="d-source-fallback" href="#">Read from source instead</a> (contacts the upstream source).{% endif %}</p>
+<link rel="stylesheet" href="{% static 'downloads/downloads.css' %}?v=3">
 <script defer src="{% static 'downloads/downloads.js' %}?v=2"></script>

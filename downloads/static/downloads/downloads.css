@@ -47,3 +47,9 @@ progress::-moz-progress-bar { background:var(--accentCol,#e25656); }
 .d-current-status, .d-current-progress { flex-basis:100%; font-size:.85rem; }
 .stored-chapter-error { position:fixed; bottom:1rem; left:1rem; right:1rem; z-index:2100; padding:1rem; background:var(--sidebarCol,#28292b); color:var(--textCol,#ddd); border:1px solid var(--accentCol,#e25656); font-size:.85rem; }
 @media(max-width:600px) { .d-toolbar { gap:.25rem; } .d-toolbar .d-action { padding:.4rem; font-size:.8rem; } .d-select-cell .ico-btn { width:1.5rem; } }
+.d-library-title { margin:1rem 0; border-bottom:1px solid var(--borderColor,#333); }
+.d-library-title summary { cursor:pointer; padding:.75rem 0; }
+.d-library-title small { color:var(--textCol,#aaa); font-size:.8rem; margin-left:.5rem; }
+.d-library-title li[hidden], .d-library-title[hidden] { display:none; }
+.d-library-message { white-space:pre-line; }
+.chapter-downloads .d-queue-link + .d-queue-link { margin-left:1rem; }

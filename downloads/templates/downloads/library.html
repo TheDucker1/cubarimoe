@@ -1,0 +1,36 @@
+{% extends 'layout.html' %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'downloads/downloads.css' %}?v=3">{% endblock %}
+{% block body %}
+<main class="d-queue-page chapter-downloads d-library" data-max-bulk="{{ max_bulk_items }}">
+  <h1>Downloaded chapters</h1>
+  <form method="get" class="d-toolbar">
+    <input class="d-group" type="search" name="q" value="{{ query }}" placeholder="Search titles" aria-label="Search downloaded titles" maxlength="200">
+    <button class="d-action" type="submit">Search</button>
+    <a class="d-queue-link" href="{% url 'download-library' %}">Refresh</a>
+  </form>
+  <form hidden>{% csrf_token %}</form>
+  <div class="d-toolbar">
+    <button type="button" class="d-action d-library-all">Select all</button>
+    <button type="button" class="ico-btn d-library-clear" aria-label="Clear selection" title="Clear selection">&#xe907;</button>
+    <span class="d-library-count">0 selected</span>
+    <button type="button" class="ico-btn d-library-remove" aria-label="Remove selected stored chapters" title="Remove selected stored chapters" disabled>×</button>
+  </div>
+  <p class="d-library-message" role="status" aria-live="polite"></p>
+  {% for title in titles %}
+  <details class="d-library-title">
+    <summary>{{ title.title }} <small>{{ title.chapters|length }} stored · {{ title.source }}</small></summary>
+    <ul class="d-queue">
+      {% for chapter in title.chapters %}
+      <li data-key="{{ chapter.chapter_key }}">
+        <input type="checkbox" class="d-select" aria-label="Select chapter {{ chapter.chapter }} · {{ chapter.group }}">
+        <a href="{% url 'library-reader' chapter.chapter_key chapter.chapter 1 %}">Chapter {{ chapter.chapter }}</a>
+        <small>{{ chapter.group }}</small>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% empty %}<p>{% if query %}No downloaded titles match your search.{% else %}No chapters downloaded yet.{% endif %}</p>{% endfor %}
+</main>
+<script defer src="{% static 'downloads/library.js' %}?v=1"></script>
+{% endblock %}

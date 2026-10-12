@@ -52,7 +52,9 @@
 		<a href="/" class="cubari-logo"></a>
 		<a class="rhombutton icon-help" id="help-button" onclick="openModal('about')"></a>
 	</header>
-	{% endcache %} {% block body %} {% endblock %}
+	{% endcache %}
+	{% if user.is_staff %}<nav class="d-library-nav"><a href="{% url 'download-library' %}">Downloaded chapters</a> · <a href="{% url 'download-queue' %}">Download queue</a></nav>{% endif %}
+	{% block body %} {% endblock %}
 	</div>
 	<div id="layers">
 		<article id="about" class="hidden">

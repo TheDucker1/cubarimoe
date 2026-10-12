@@ -316,3 +316,10 @@ The existing browser save-to-device implementation remains separate. Stored page
 Tests use isolated configuration, fake transport/storage, and Botocore Stubber. No live S3 permissions, provider transfer/deletion behavior, browser interaction, or live compatibility of each legacy source has been verified. Setup and the initial small-chapter check remain required before production use.
 
 Backblaze references: [lifecycle rules](https://www.backblaze.com/docs/cloud-storage-lifecycle-rules), [Get Bucket Versioning](https://www.backblaze.com/apidocs/s3-get-bucket-versioning), [List Object Versions](https://www.backblaze.com/apidocs/s3-list-object-versions), and [Delete Object](https://www.backblaze.com/apidocs/s3-delete-object).
+
+
+## Downloaded-chapter library
+
+`/library/` is a separate staff library, grouped by source/title identity, displaying ready chapters only. It supports title search, expandable titles, stored chapter/group links, and select-all/clear/bulk removal. It queries durable records without source metadata requests or cover fetching. Refresh discovers new downloads; queue progress remains on `/downloads/`.
+
+Library links use a distinct database-only reader/API route. A known chapter key anchors a source/series/group; the returned chapter list includes only that group's currently ready chapters with manifest-based local page URLs. The anchor need not remain ready if other stored chapters survive. Missing/deleting chapters return 404, and stale/absent source snapshots only remove optional chapter descriptions, not library availability. The original reader renders/navigation operates on this restricted data, so previous/next and chapter selectors cannot lead into an undownloaded group or upstream chapter. Explicit source fallback is absent on these routes. No new schema, third-party module, or configuration is required. Reading retains the established public boundary; listing/management require staff login and mutations retain CSRF.
